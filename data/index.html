@@ -214,9 +214,11 @@
             <div id="updateStatus" class="status" style="display:none"></div>
             <div id="updateActions" style="display:none;margin-top:6px">
               <button class="danger" tabindex="17" onclick="installUpdate()">
-                Install update
+                Update firmware
               </button>
             </div>
+            <button class="secondary" tabindex="18" onclick="installFSUpdate()"
+                    style="margin-top:8px">Update web files</button>
           </div>
         </div>
 
@@ -835,6 +837,36 @@ async function installUpdate() {
       statusEl.className     = 'status';
       statusEl.style.display = 'block';
     } catch(e) { /* still rebooting — try again */ }
+  }, 3000);
+}
+
+async function installFSUpdate() {
+  const ok = await confirm('Update web files? The device will reboot.');
+  if (!ok) return;
+  const statusEl = document.getElementById('updateStatus');
+  statusEl.textContent   = 'Downloading & installing web files… do not close this page.';
+  statusEl.className     = 'status';
+  statusEl.style.display = 'block';
+  try {
+    await fetch('/api/doupdatefs', { method: 'POST' });
+  } catch(e) { /* device may reboot before response */ }
+  // Poll until device is back, then reload so we're running the new UI
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts++;
+    if (attempts > 60) {
+      clearInterval(poll);
+      showStatus('updateStatus', 'Update timed out — check device manually.', true);
+      return;
+    }
+    try {
+      await fetch('/api/version');
+      clearInterval(poll);
+      statusEl.textContent   = 'Web files updated — reloading…';
+      statusEl.className     = 'status';
+      statusEl.style.display = 'block';
+      setTimeout(() => location.reload(), 1500);
+    } catch(e) { /* still rebooting */ }
   }, 3000);
 }
 

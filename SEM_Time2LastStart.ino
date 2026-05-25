@@ -94,7 +94,8 @@ String       currentTZName  = "Europe/Warsaw";
 bool         apMode         = false;
 String       overrideText   = "";    // if non-empty, bypasses the clock state machine
 bool         overrideDirty  = false; // set when overrideText changes; loop acts once then clears
-bool         updateRequested = false; // set by /api/doupdate; acted on in loop()
+bool         updateRequested   = false; // set by /api/doupdate;   acted on in loop()
+bool         fsUpdateRequested = false; // set by /api/doupdatefs; acted on in loop()
 
 #ifdef HAS_RTC
 RTC_DS3231   rtc;
@@ -743,8 +744,7 @@ void handleGetDisplay() {
       line1 = sType; line2 = "00:00:00";
       blinkMs = 1000; stateStr = "LAST_START"; break;
     case STATE_TRACK_CLOSED:
-      line1 = "TRACK CLOSED";
-      blinkMs = 1000; stateStr = "TRACK_CLOSED"; break;
+      line1 = "TRACK CLOSED"; stateStr = "TRACK_CLOSED"; break;
     default:
       stateStr = "UNKNOWN"; break;
   }
@@ -811,6 +811,11 @@ void handleDoUpdate() {
   updateRequested = true;
 }
 
+void handleDoUpdateFS() {
+  server.send(200, "application/json", "{\"ok\":true}");
+  fsUpdateRequested = true;
+}
+
 // Called from loop() when updateRequested is set.
 void performFirmwareUpdate() {
   updateRequested = false;
@@ -842,13 +847,52 @@ void performFirmwareUpdate() {
   switch (ret) {
     case HTTP_UPDATE_OK:
       Serial.println("[OTA] Success — rebooting");
-      // HTTPUpdate already calls ESP.restart()
       break;
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("[OTA] No update available");
       break;
     case HTTP_UPDATE_FAILED:
       Serial.println("[OTA] Failed: " + httpUpdate.getLastErrorString());
+      break;
+  }
+}
+
+// Called from loop() when fsUpdateRequested is set.
+void performFilesystemUpdate() {
+  fsUpdateRequested = false;
+
+  String raw;
+  if (!fetchURL("https://raw.githubusercontent.com/"
+                GITHUB_OWNER "/" GITHUB_REPO "/main/version.json", raw)) {
+    Serial.println("[FSOTA] Could not fetch version.json");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, raw)) { Serial.println("[FSOTA] Bad version.json"); return; }
+  String latest = doc["version"].as<String>();
+
+  String url = "https://github.com/" GITHUB_OWNER "/" GITHUB_REPO
+               "/releases/download/v" + latest + "/littlefs.bin";
+  Serial.println("[FSOTA] Downloading: " + url);
+
+#ifdef HAS_P10
+  displayMessage("FS OTA...");
+#endif
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  t_httpUpdate_return ret = httpUpdate.updateSpiffs(client, url);
+
+  switch (ret) {
+    case HTTP_UPDATE_OK:
+      Serial.println("[FSOTA] Success — rebooting");
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("[FSOTA] No update available");
+      break;
+    case HTTP_UPDATE_FAILED:
+      Serial.println("[FSOTA] Failed: " + httpUpdate.getLastErrorString());
       break;
   }
 }
@@ -981,6 +1025,7 @@ void setup() {
   server.on("/api/version",        HTTP_GET,  handleGetVersion);
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);
+  server.on("/api/doupdatefs",     HTTP_POST, handleDoUpdateFS);
   server.on("/upload",             HTTP_POST,
     []() { server.send(200, "application/json", "{\"ok\":true}"); },
     handleFileUpload
@@ -999,7 +1044,8 @@ void loop() {
   ArduinoOTA.handle();
   ElegantOTA.loop();
 
-  if (updateRequested) performFirmwareUpdate();
+  if (updateRequested)   performFirmwareUpdate();
+  if (fsUpdateRequested) performFilesystemUpdate();
 
 #ifdef HAS_P10
   p10UpdateScroll();
@@ -1109,18 +1155,15 @@ void loop() {
         displayBlink(true, sType);
         break;
       case STATE_TRACK_CLOSED:
-        blinkState = true;
-        lastBlink  = millis();
         displayMessage("TRACK CLOSED");
         break;
     }
   }
 
   // Blink timing:
-  //   WARNING      — 750 ms on / 250 ms off; type stays solid, only countdown blinks
-  //   LAST_START   — 500 ms on / 500 ms off; type stays solid, 00:00:00 blinks
-  //   TRACK_CLOSED — 500 ms on / 500 ms off; whole message blinks
-  if (state == STATE_WARNING || state == STATE_LAST_START || state == STATE_TRACK_CLOSED) {
+  //   WARNING    — 750 ms on / 250 ms off; type stays solid, only countdown blinks
+  //   LAST_START — 500 ms on / 500 ms off; type stays solid, 00:00:00 blinks
+  if (state == STATE_WARNING || state == STATE_LAST_START) {
     unsigned long onMs  = (state == STATE_WARNING) ? 750UL : 500UL;
     unsigned long offMs = (state == STATE_WARNING) ? 250UL : 500UL;
     unsigned long interval = blinkState ? onMs : offMs;
@@ -1128,9 +1171,7 @@ void loop() {
       lastBlink  = millis();
       blinkState = !blinkState;
       String sType = (activeSession >= 0) ? sessions[activeSession].type : "";
-      if (state == STATE_TRACK_CLOSED) {
-        displayMessage(blinkState ? "TRACK CLOSED" : "");
-      } else if (state == STATE_LAST_START) {
+      if (state == STATE_LAST_START) {
         displayBlink(blinkState, sType);
       } else {
         // WARNING: type line stays solid; only the countdown row blinks

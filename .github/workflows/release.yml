@@ -81,8 +81,17 @@ jobs:
             SEM_Time2LastStart
 
       # ── Package ───────────────────────────────────────────────────────────
-      - name: Rename binary to firmware.bin
+      - name: Rename firmware binary
         run: cp build/SEM_Time2LastStart.ino.bin firmware.bin
+
+      - name: Build LittleFS image
+        run: |
+          # The ESP32 core ships mklittlefs; find whichever version was installed.
+          MKLITTLEFS=$(find ~/.arduino15/packages/esp32/tools/mklittlefs \
+                            -name mklittlefs -type f | sort -V | tail -1)
+          echo "Using: $MKLITTLEFS"
+          # Partition size for PartitionScheme=default on 4 MB flash: 0x170000 bytes
+          "$MKLITTLEFS" -c data -s 1507328 -b 4096 -p 256 littlefs.bin
 
       # ── Release ───────────────────────────────────────────────────────────
       - name: Create GitHub Release
@@ -92,10 +101,12 @@ jobs:
           body: |
             ## SEM Race Clock ${{ github.ref_name }}
 
-            **Install via the web UI** — open the Firmware card at `http://raceclock.local`
-            and click **Check for updates → Install update**.
+            **Install via the web UI** — open the Device card at `http://raceclock.local`,
+            expand it, and use **Check for updates → Update firmware** and/or **Update web files**.
 
-            **Manual install** — flash `firmware.bin` via
+            **Manual install** — flash `firmware.bin` and/or `littlefs.bin` via
             [ElegantOTA](http://raceclock.local/update) (username: `admin`, password: `raceclock`).
-          files: firmware.bin
+          files: |
+            firmware.bin
+            littlefs.bin
           fail_on_unmatched_files: true
