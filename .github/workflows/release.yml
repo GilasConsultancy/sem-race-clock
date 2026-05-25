@@ -44,17 +44,8 @@ jobs:
             "$WIFI_SSID" "$WIFI_PASSWORD" > credentials.h
 
       # ── Toolchain ─────────────────────────────────────────────────────────
-      - name: Install arduino-cli
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-      - name: Add ESP32 board index
-        run: |
-          arduino-cli config init
-          arduino-cli config add board_manager.additional_urls \
-            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core update-index
+      - name: Set up arduino-cli
+        uses: arduino/setup-arduino-cli@v2
 
       - name: Cache Arduino data
         uses: actions/cache@v4
@@ -63,11 +54,12 @@ jobs:
           key: arduino-esp32-${{ runner.os }}-${{ hashFiles('.github/workflows/release.yml') }}
           restore-keys: arduino-esp32-${{ runner.os }}-
 
-      - name: Install ESP32 core
-        run: arduino-cli core install esp32:esp32
-
-      - name: Install libraries
+      - name: Install ESP32 core and libraries
         run: |
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
           arduino-cli lib install "ArduinoJson"
           arduino-cli lib install "ezTime"
           arduino-cli lib install "ElegantOTA"
