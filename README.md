@@ -42,9 +42,7 @@ Install these through the Arduino IDE Library Manager or board manager:
 ```
 SEM_Time2LastStart/
 ├── SEM_Time2LastStart.ino   # Firmware — all device logic
-├── credentials.h            # WiFi credentials (gitignored — never committed)
-├── credentials.h.example    # Template for credentials.h
-├── version.json             # Current firmware version (bump before each release)
+├── version.json             # Current firmware version (managed by CI)
 └── data/                    # LittleFS filesystem image
     ├── index.html           # Web management UI (self-contained)
     ├── style.css            # Shell-branded stylesheet
@@ -61,19 +59,14 @@ In Arduino IDE, select **DFRobot FireBeetle 2 ESP32-E** (or generic ESP32 Dev Mo
 
 ### 2. WiFi credentials
 
-Copy `credentials.h.example` to `credentials.h` and fill in your network details:
+WiFi credentials are **not compiled into the firmware**. On first boot (or if no credentials are stored), the device starts an access point:
 
-```cpp
-// Home / development network
-#define WIFI_SSID     "YourHomeSSID"
-#define WIFI_PASSWORD "YourHomePassword"
+- SSID: **`RaceClock`**
+- Password: **`raceclock1`**
 
-// Competition network — comment the lines above and uncomment below when on-site
-//#define WIFI_SSID     "VenueSSID"
-//#define WIFI_PASSWORD "VenuePassword"
-```
+Connect to that network, open **`http://192.168.4.1`**, and enter your WiFi details in the **WiFi** card. The device saves them to NVS (a separate flash partition), restarts, and joins your network. Credentials survive all future firmware and filesystem OTA updates.
 
-`credentials.h` is listed in `.gitignore` and will never be committed.
+To switch networks (e.g. home → competition venue), just update the WiFi card in the web UI.
 
 ### 3. Flash the firmware
 
@@ -228,16 +221,6 @@ All endpoints return JSON.
 Releases are fully automated by a GitHub Actions workflow (`.github/workflows/release.yml`).
 Pushing a version tag compiles the firmware in CI, names the binary `firmware.bin`, and
 publishes a GitHub Release — no manual binary export or renaming required.
-
-### One-time setup — repository secrets
-
-The workflow creates `credentials.h` at build time from two repository secrets.
-Set them once under **Settings → Secrets and variables → Actions → New repository secret**:
-
-| Secret | Value |
-|---|---|
-| `WIFI_SSID` | Your WiFi network name |
-| `WIFI_PASSWORD` | Your WiFi password |
 
 ### Release steps
 

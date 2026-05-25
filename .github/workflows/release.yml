@@ -41,20 +41,6 @@ jobs:
           grep "FIRMWARE_VERSION" SEM_Time2LastStart.ino
           cat version.json
 
-      # ── Guard: WiFi credentials must be set as repository secrets ────────
-      - name: Create credentials.h from repository secrets
-        env:
-          WIFI_SSID: ${{ secrets.WIFI_SSID }}
-          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
-        run: |
-          if [ -z "$WIFI_SSID" ] || [ -z "$WIFI_PASSWORD" ]; then
-            echo "::error::Set WIFI_SSID and WIFI_PASSWORD as repository secrets."
-            echo "::error::Go to: Settings → Secrets and variables → Actions → New repository secret"
-            exit 1
-          fi
-          printf '#define WIFI_SSID     "%s"\n#define WIFI_PASSWORD "%s"\n' \
-            "$WIFI_SSID" "$WIFI_PASSWORD" > credentials.h
-
       # ── Toolchain ─────────────────────────────────────────────────────────
       - name: Set up arduino-cli
         uses: arduino/setup-arduino-cli@v2
@@ -81,7 +67,7 @@ jobs:
       - name: Stage sketch directory
         run: |
           mkdir SEM_Time2LastStart
-          cp SEM_Time2LastStart.ino credentials.h SEM_Time2LastStart/
+          cp SEM_Time2LastStart.ino SEM_Time2LastStart/
 
       - name: Compile firmware
         run: |

@@ -380,6 +380,25 @@ button.danger:hover { background: #bb1418; }
 }
 .p10-scroll { animation: p10scroll 5s linear infinite; }
 
+/* ─── WiFi status ─────────────────────────────────────── */
+.wifi-status {
+  font-size: 13px;
+  color: #aaa;
+  padding: 4px 0;
+}
+.wifi-status.connected { color: #2e7d32; font-weight: bold; }
+.wifi-status.apmode    { color: #e65100; font-weight: bold; }
+
+/* ─── Password row ────────────────────────────────────── */
+.password-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.password-row input       { flex: 1; margin-bottom: 0; }
+.btn-reveal               { flex: 0 0 auto; width: auto; padding: 10px 14px; margin-top: 0; }
+
 /* ─── Device card (collapsible) ──────────────────────── */
 .device-toggle {
   display: flex;
@@ -397,7 +416,6 @@ button.danger:hover { background: #bb1418; }
   font-weight: bold;
   color: #DD1D21;
   letter-spacing: 1px;
-  text-transform: uppercase;
 }
 .device-toggle-right {
   display: flex;
@@ -424,7 +442,6 @@ button.danger:hover { background: #bb1418; }
   font-weight: bold;
   color: #bbb;
   letter-spacing: 1px;
-  text-transform: uppercase;
   margin-bottom: 12px;
 }
 

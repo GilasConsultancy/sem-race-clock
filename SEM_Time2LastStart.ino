@@ -55,9 +55,6 @@
 #define GITHUB_REPO      "sem-race-clock"
 
 // --- Configuration ---
-#include "credentials.h"   // gitignored — copy credentials.h.example to get started
-const char* ssid     = WIFI_SSID;
-const char* password = WIFI_PASSWORD;
 const char* hostname = "raceclock";
 
 #define MAX_SESSIONS 20
@@ -94,8 +91,9 @@ String       currentTZName  = "Europe/Warsaw";
 bool         apMode         = false;
 String       overrideText   = "";    // if non-empty, bypasses the clock state machine
 bool         overrideDirty  = false; // set when overrideText changes; loop acts once then clears
-bool         updateRequested   = false; // set by /api/doupdate;   acted on in loop()
-bool         fsUpdateRequested = false; // set by /api/doupdatefs; acted on in loop()
+bool         updateRequested      = false; // set by /api/doupdate;    acted on in loop()
+bool         fsUpdateRequested    = false; // set by /api/doupdatefs;  acted on in loop()
+bool         wifiRestartRequested = false; // set by /api/wifi POST;   acted on in loop()
 
 #ifdef HAS_RTC
 RTC_DS3231   rtc;
@@ -896,6 +894,38 @@ void performFilesystemUpdate() {
       break;
   }
 }
+// GET /api/wifi — current SSID (never the password) + connection status
+void handleGetWifi() {
+  JsonDocument doc;
+  doc["ssid"]      = prefs.getString("wifi_ssid", "");
+  doc["connected"] = (WiFi.status() == WL_CONNECTED);
+  doc["ip"]        = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+  doc["apMode"]    = apMode;
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+// POST /api/wifi — save credentials to NVS and restart
+void handleSetWifi() {
+  String body = server.arg("plain");
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) {
+    server.send(400, "application/json", "{\"error\":\"Bad JSON\"}");
+    return;
+  }
+  String ssid = doc["ssid"] | "";
+  String pass = doc["password"] | "";
+  ssid.trim();
+  if (ssid.isEmpty()) {
+    server.send(400, "application/json", "{\"error\":\"SSID cannot be empty\"}");
+    return;
+  }
+  prefs.putString("wifi_ssid",     ssid);
+  prefs.putString("wifi_password", pass);
+  server.send(200, "application/json", "{\"ok\":true}");
+  wifiRestartRequested = true;
+}
+
 // ============================================================
 
 // --- Setup ---
@@ -954,33 +984,46 @@ void setup() {
   dmd.clearScreen(true);
 #endif
 
-  displayScroll("CONNECTING...");
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  String wifiSsid = prefs.getString("wifi_ssid", "");
+  String wifiPass = prefs.getString("wifi_password", "");
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500); Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
+  auto startAP = [&]() {
     apMode = true;
-    Serial.println("\nWiFi failed — starting AP");
     WiFi.mode(WIFI_AP);
     WiFi.softAP("RaceClock", "raceclock1");
     displayScroll("AP:RaceClock pw:raceclock1");
-    Serial.println("AP IP: " + WiFi.softAPIP().toString());
+    Serial.println("AP mode — 192.168.4.1");
+  };
+
+  if (wifiSsid.isEmpty()) {
+    Serial.println("No WiFi credentials stored — starting AP mode");
+    startAP();
   } else {
-    Serial.println("\nConnected: " + WiFi.localIP().toString());
-    if (MDNS.begin(hostname))
-      Serial.println("mDNS: http://" + String(hostname) + ".local");
-    displayMessage("SYNC...");
-    applyTimezone(currentTZName);
-    waitForSync(10);
-    if (timeStatus() != timeSet) displayMessage("NO TIME");
-    else displayMessage(WiFi.localIP().toString());
-    Serial.println("Ready — http://" + String(hostname) + ".local");
+    displayScroll("CONNECTING...");
+    WiFi.setHostname(hostname);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500); Serial.print(".");
+      attempts++;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("\nWiFi failed — falling back to AP mode");
+      startAP();
+    } else {
+      Serial.println("\nConnected: " + WiFi.localIP().toString());
+      if (MDNS.begin(hostname))
+        Serial.println("mDNS: http://" + String(hostname) + ".local");
+      displayMessage("SYNC...");
+      applyTimezone(currentTZName);
+      waitForSync(10);
+      if (timeStatus() != timeSet) displayMessage("NO TIME");
+      else displayMessage(WiFi.localIP().toString());
+      Serial.println("Ready — http://" + String(hostname) + ".local");
+    }
   }
 
   updateActiveSession();
@@ -1022,6 +1065,8 @@ void setup() {
   server.on("/api/sem/sessions",   HTTP_GET,  handleSEMSessions);
   server.on("/api/override",       HTTP_GET,  handleGetOverride);
   server.on("/api/override",       HTTP_POST, handlePostOverride);
+  server.on("/api/wifi",           HTTP_GET,  handleGetWifi);
+  server.on("/api/wifi",           HTTP_POST, handleSetWifi);
   server.on("/api/version",        HTTP_GET,  handleGetVersion);
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);
@@ -1044,8 +1089,9 @@ void loop() {
   ArduinoOTA.handle();
   ElegantOTA.loop();
 
-  if (updateRequested)   performFirmwareUpdate();
-  if (fsUpdateRequested) performFilesystemUpdate();
+  if (updateRequested)      performFirmwareUpdate();
+  if (fsUpdateRequested)    performFilesystemUpdate();
+  if (wifiRestartRequested) { delay(200); ESP.restart(); }
 
 #ifdef HAS_P10
   p10UpdateScroll();
