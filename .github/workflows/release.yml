@@ -65,12 +65,20 @@ jobs:
           arduino-cli lib install "ElegantOTA"
 
       # ── Compile ───────────────────────────────────────────────────────────
+      # arduino-cli requires the sketch directory name to match the .ino file.
+      # The repo root is named sem-race-clock, so we stage the sketch into a
+      # correctly-named subdirectory before compiling.
+      - name: Stage sketch directory
+        run: |
+          mkdir SEM_Time2LastStart
+          cp SEM_Time2LastStart.ino credentials.h SEM_Time2LastStart/
+
       - name: Compile firmware
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:dfrobot_firebeetle2_esp32e:PartitionScheme=default \
             --output-dir build \
-            SEM_Time2LastStart.ino
+            SEM_Time2LastStart
 
       # ── Package ───────────────────────────────────────────────────────────
       - name: Rename binary to firmware.bin
