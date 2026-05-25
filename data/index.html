@@ -182,25 +182,41 @@
         </div>
 
         <div class="card">
-          <p class="section-title">Web Files</p>
-          <label>Replace a file on the device</label>
-          <input type="file" id="webFileInput" tabindex="13" accept=".html,.css">
-          <p class="hint">Accepted: index.html, style.css</p>
-          <button tabindex="14" onclick="uploadWebFile()">Upload</button>
-          <div id="uploadStatus" class="status" style="display:none"></div>
-        </div>
+          <div class="device-toggle"
+               id="deviceToggle"
+               role="button"
+               tabindex="13"
+               aria-expanded="false"
+               onclick="toggleDevice()"
+               onkeydown="if(event.key==='Enter'||event.key===' '){toggleDevice();event.preventDefault();}">
+            <span class="device-toggle-title">Device</span>
+            <span class="device-toggle-right">
+              <span id="fwVersionBadge" class="device-version-badge"></span>
+              <span id="deviceChevron" class="device-chevron">▾</span>
+            </span>
+          </div>
 
-        <div class="card">
-          <p class="section-title">Firmware</p>
-          <p class="time-label">Installed version</p>
-          <div class="time-now" id="fwVersion" style="font-size:22px;letter-spacing:3px">—</div>
-          <hr class="divider">
-          <button tabindex="15" onclick="checkForUpdate()">Check for updates</button>
-          <div id="updateStatus" class="status" style="display:none"></div>
-          <div id="updateActions" style="display:none;margin-top:6px">
-            <button class="danger" tabindex="16" onclick="installUpdate()">
-              Install update
-            </button>
+          <div id="deviceBody" class="device-body" style="display:none">
+            <p class="device-subsection">Web Files</p>
+            <label>Replace a file on the device</label>
+            <input type="file" id="webFileInput" tabindex="14" accept=".html,.css">
+            <p class="hint">Accepted: index.html, style.css</p>
+            <button tabindex="15" onclick="uploadWebFile()">Upload</button>
+            <div id="uploadStatus" class="status" style="display:none"></div>
+
+            <hr class="divider">
+
+            <p class="device-subsection">Firmware</p>
+            <p class="time-label">Installed version</p>
+            <div class="time-now" id="fwVersion" style="font-size:22px;letter-spacing:3px">—</div>
+            <hr class="divider">
+            <button tabindex="16" onclick="checkForUpdate()">Check for updates</button>
+            <div id="updateStatus" class="status" style="display:none"></div>
+            <div id="updateActions" style="display:none;margin-top:6px">
+              <button class="danger" tabindex="17" onclick="installUpdate()">
+                Install update
+              </button>
+            </div>
           </div>
         </div>
 
@@ -748,11 +764,21 @@ async function uploadWebFile() {
 }
 
 // ── Firmware update ────────────────────────────────────
+let deviceOpen = false;
+function toggleDevice() {
+  deviceOpen = !deviceOpen;
+  document.getElementById('deviceBody').style.display = deviceOpen ? 'block' : 'none';
+  document.getElementById('deviceChevron').className  = 'device-chevron' + (deviceOpen ? ' open' : '');
+  document.getElementById('deviceToggle').setAttribute('aria-expanded', String(deviceOpen));
+}
+
 async function loadVersion() {
   try {
     const r = await fetch('/api/version');
     const d = await r.json();
-    document.getElementById('fwVersion').textContent = d.version || '—';
+    const v = d.version || null;
+    document.getElementById('fwVersion').textContent = v || '—';
+    if (v) document.getElementById('fwVersionBadge').textContent = 'v' + v;
   } catch(e) {}
 }
 
