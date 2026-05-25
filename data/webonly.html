@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Race Clock — Last Start</title>
+  <link rel="stylesheet" href="//cdn.sem-app.com/fonts/shell.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #FBCE07;
+      font-family: 'Shell', sans-serif;
+      color: #DD1D21;
+    }
+
+    /* ── Main countdown display ──────────────────────────────── */
+    #display {
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      user-select: none; gap: 0;
+    }
+
+    /* Reserve space even when hidden so layout doesn't jump */
+    #typeLabel {
+      font-size: 8vw;
+      line-height: 1.1;
+      text-align: center;
+      letter-spacing: 0.05em;
+      min-height: 9.5vw;
+    }
+    #typeLabel.invisible { visibility: hidden; }
+
+    /* Switches between large time (numeric) and message text */
+    #clock {
+      font-size: 22vw;
+      font-weight: 500;
+      line-height: 1;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    #clock.text-mode { font-size: 11vw; }
+
+    #stateLabel {
+      font-size: 3.2vw;
+      line-height: 1;
+      text-align: center;
+      margin-top: 2.5vw;
+      letter-spacing: 0.12em;
+      min-height: 4vw;
+    }
+
+    /* ── Blink animations ───────────────────────────────────── */
+    /* WARNING: 750 ms on / 250 ms off — asymmetric, matches firmware */
+    @keyframes blink-warn {
+      0%, 74.9% { opacity: 1; }
+      75%, 100%  { opacity: 0; }
+    }
+    /* LAST_START / TRACK_CLOSED: 500 ms / 500 ms */
+    @keyframes blink-sym {
+      0%, 49.9% { opacity: 1; }
+      50%, 100%  { opacity: 0; }
+    }
+    .blink-warn { animation: blink-warn 1s   linear infinite; }
+    .blink-1000 { animation: blink-sym  1s   linear infinite; }
+
+    /* ── Gear / settings button ──────────────────────────────── */
+    #gearBtn {
+      position: fixed; top: 14px; right: 18px;
+      font-size: 26px;
+      background: none; border: none;
+      color: rgba(221,29,33,0.30);
+      cursor: pointer; padding: 6px; line-height: 1;
+      z-index: 10; transition: color 0.2s;
+    }
+    #gearBtn:hover { color: rgba(221,29,33,0.75); }
+
+    /* ── Settings overlay ────────────────────────────────────── */
+    #settingsOverlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.60);
+      z-index: 50; overflow-y: auto;
+      padding: 24px 16px;
+    }
+    #settingsOverlay.open { display: flex; align-items: flex-start; justify-content: center; }
+
+    .sbox {
+      background: #fff; border-radius: 12px;
+      padding: 28px; max-width: 540px; width: 100%;
+      margin: auto; color: #1a1a1a;
+      font-family: Arial, sans-serif;
+    }
+
+    .sbox-title {
+      font-size: 15px; font-weight: bold;
+      color: #DD1D21; text-transform: uppercase; letter-spacing: 2px;
+      margin-bottom: 20px; padding-bottom: 10px;
+      border-bottom: 3px solid #FBCE07;
+    }
+    .sbox-section {
+      font-size: 11px; font-weight: bold;
+      color: #DD1D21; text-transform: uppercase; letter-spacing: 1px;
+      margin: 20px 0 10px; padding-bottom: 6px;
+      border-bottom: 2px solid #FBCE07;
+    }
+
+    .sbox label {
+      display: block; font-size: 11px; font-weight: bold;
+      color: #555; text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+    .sbox select,
+    .sbox input[type=number],
+    .sbox input[type=time],
+    .sbox input[type=text] {
+      width: 100%; padding: 9px 12px;
+      border-radius: 6px; border: 1.5px solid #ddd;
+      font-size: 14px; color: #1a1a1a; background: #fff;
+      margin-bottom: 12px;
+    }
+    .sbox select:focus, .sbox input:focus {
+      outline: none; border-color: #FBCE07;
+      box-shadow: 0 0 0 3px rgba(251,206,7,0.3);
+    }
+    .sbox .custom-tz { display: none; }
+
+    .warn-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .warn-row label { margin-bottom: 0; white-space: nowrap; }
+    .warn-row input[type=number] { width: 70px; margin-bottom: 0; }
+
+    .btn {
+      display: block; width: 100%;
+      padding: 11px 20px; border-radius: 6px; border: none;
+      font-size: 14px; font-weight: bold; cursor: pointer;
+      font-family: Arial, sans-serif; margin-bottom: 8px;
+    }
+    .btn-primary   { background: #FBCE07; color: #1a1a1a; }
+    .btn-primary:hover  { background: #e6bc00; }
+    .btn-secondary { background: #f0f0f0; color: #555; }
+    .btn-secondary:hover { background: #e4e4e4; }
+    .btn-danger    { background: #DD1D21; color: #fff; }
+    .btn-danger:hover   { background: #bb1418; }
+    .btn-close     { background: #f0f0f0; color: #555; margin-top: 6px; }
+    .btn-close:hover    { background: #e4e4e4; }
+    .btn-sm {
+      display: inline-block; width: auto;
+      padding: 3px 10px; font-size: 12px; margin-bottom: 0;
+    }
+
+    .hint { font-size: 12px; color: #aaa; margin-bottom: 10px; }
+    .divider { border: none; border-top: 1px solid #eee; margin: 16px 0; }
+
+    .inline-ok  { font-size: 13px; color: #2e7d32; background: #e8f5e9; border: 1px solid #c8e6c9; border-radius: 6px; padding: 8px 12px; margin-top: 6px; }
+    .inline-err { font-size: 13px; color: #c62828; background: #ffebee; border: 1px solid #ffcdd2; border-radius: 6px; padding: 8px 12px; margin-top: 6px; }
+
+    .session-tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }
+    .session-tbl th { text-align: left; color: #aaa; font-size: 11px; text-transform: uppercase; padding: 4px 6px; border-bottom: 1px solid #FBCE07; }
+    .session-tbl td { padding: 7px 6px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+
+    /* 4-column manual add form */
+    .form4 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .form4 > div { display: flex; flex-direction: column; }
+    .form4 select, .form4 input { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Main display ─────────────────────────────────────── -->
+  <div id="display">
+    <div id="typeLabel" class="invisible"></div>
+    <div id="clock">--:--:--</div>
+    <div id="stateLabel"></div>
+  </div>
+
+  <!-- Settings trigger — subtle, stays out of the way on TV -->
+  <button id="gearBtn" onclick="openSettings()" title="Settings (S)">⚙</button>
+
+  <!-- ── Settings overlay ─────────────────────────────────── -->
+  <div id="settingsOverlay">
+    <div class="sbox">
+      <p class="sbox-title">Race Clock — Settings</p>
+
+      <!-- Timezone + warning threshold -->
+      <p class="sbox-section">Timezone &amp; warning</p>
+
+      <label>Event location</label>
+      <select id="tzPreset" onchange="onTZChange(this)">
+        <option value="Europe/Warsaw">Kamień Śląski, Poland (CET)</option>
+        <option value="Asia/Qatar">Doha, Qatar</option>
+        <option value="America/Indiana/Indianapolis">Indianapolis, United States</option>
+        <option value="America/Sao_Paulo">Rio de Janeiro, Brazil</option>
+        <option value="custom">Other (enter below)</option>
+      </select>
+      <div class="custom-tz" id="customTZ">
+        <label>IANA timezone name</label>
+        <input type="text" id="tzCustom" placeholder="e.g. Asia/Dubai">
+      </div>
+
+      <div class="warn-row">
+        <label>Warning threshold</label>
+        <input type="number" id="warnMinutes" min="1" max="30" value="5">
+        <span style="font-size:12px;color:#888">minutes before last start</span>
+      </div>
+
+      <hr class="divider">
+
+      <!-- SEM official schedule import -->
+      <p class="sbox-section">Import from official SEM schedule</p>
+
+      <button class="btn btn-primary" id="semLoadBtn" onclick="loadSEMDays()">
+        Load official schedule
+      </button>
+      <div id="semStatus"></div>
+
+      <div id="semDayRow" style="display:none; margin-top:10px;">
+        <label>Select day</label>
+        <select id="semDaySelect" onchange="loadSEMSessionsFromCache()"></select>
+
+        <div id="semPreview" style="display:none; margin-top:8px;">
+          <table class="session-tbl">
+            <thead><tr><th>Type</th><th>Start</th><th>Last start</th><th>End</th></tr></thead>
+            <tbody id="semPreviewBody"></tbody>
+          </table>
+          <button class="btn btn-primary" onclick="importSEMSessions()">
+            Import — replaces all current sessions
+          </button>
+          <div id="semImportStatus"></div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Manual sessions -->
+      <p class="sbox-section">Sessions</p>
+
+      <div id="sessionTableContainer"></div>
+
+      <p class="sbox-section" style="margin-top:14px" id="mFormTitle">Add session manually</p>
+      <div class="form4">
+        <div>
+          <label>Type</label>
+          <select id="mType">
+            <option value="Prototype">Prototype</option>
+            <option value="Urban Concept">Urban Concept</option>
+          </select>
+        </div>
+        <div>
+          <label>Start</label>
+          <input type="time" id="mStart">
+        </div>
+        <div>
+          <label>Last start</label>
+          <input type="time" id="mLastStart">
+        </div>
+        <div>
+          <label>End</label>
+          <input type="time" id="mEnd">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="mSaveBtn" onclick="saveSessionForm()">Add session</button>
+      <button class="btn btn-secondary" id="mCancelBtn" style="display:none" onclick="cancelEdit()">Cancel edit</button>
+      <div id="manualStatus"></div>
+
+      <hr class="divider">
+      <button class="btn btn-close" onclick="closeSettings()">✓ Close — Resume clock</button>
+    </div>
+  </div>
+
+<script>
+'use strict';
+
+// ── Persisted state ────────────────────────────────────────────
+let settings = {
+  tz:          localStorage.getItem('tz')   || 'Europe/Warsaw',
+  warnMinutes: parseInt(localStorage.getItem('warn') || '5', 10)
+};
+// Sessions: [{type, start, lastStart, end}]  (HH:MM strings)
+let sessions = JSON.parse(localStorage.getItem('sessions') || '[]');
+
+// SEM fetch cache (in-memory; survives day-select changes, cleared on next Load)
+let semCache    = null;   // full schedule JSON
+let semSessions = [];     // parsed sessions for the selected day
+
+// Manual session form: -1 = adding new, ≥0 = editing that index
+let mEditIndex = -1;
+
+// ── Time helpers ───────────────────────────────────────────────
+function timeToSecs(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 3600 + m * 60;
+}
+
+function formatCountdown(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// Seconds since midnight in the configured event timezone.
+function getEventNowSecs() {
+  const now = new Date();
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: settings.tz,
+      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+    }).formatToParts(now);
+    const h = parseInt(parts.find(p => p.type === 'hour').value,   10);
+    const m = parseInt(parts.find(p => p.type === 'minute').value, 10);
+    const s = parseInt(parts.find(p => p.type === 'second').value, 10);
+    return h * 3600 + m * 60 + s;
+  } catch(e) {
+    return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  }
+}
+
+// Today's date string (YYYY-MM-DD) in the event timezone — for SEM day matching.
+function getEventTodayStr() {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: settings.tz });
+  } catch(e) {
+    return new Date().toLocaleDateString('en-CA');
+  }
+}
+
+// ── State machine ──────────────────────────────────────────────
+// Mirrors computeState() in SEM_Time2LastStart.ino exactly.
+function computeState() {
+  if (!sessions.length) return { state: 'NO_SESSION', remaining: 0, session: null };
+
+  const nowSecs = getEventNowSecs();
+
+  // Active session = first session whose end time hasn't passed
+  let active = null;
+  for (const s of sessions) {
+    if (nowSecs < timeToSecs(s.end)) { active = s; break; }
+  }
+  if (!active) return { state: 'TRACK_CLOSED', remaining: 0, session: null };
+
+  const startSecs = timeToSecs(active.start);
+  const lsSecs    = timeToSecs(active.lastStart);
+  const endSecs   = timeToSecs(active.end);
+
+  if (nowSecs < startSecs) {
+    // Before session opens — show countdown to last start
+    let rem = lsSecs - nowSecs;
+    if (rem < 0) rem += 86400;
+    return { state: 'PRE_SESSION', remaining: rem, session: active };
+  }
+  if (nowSecs < lsSecs) {
+    const rem = lsSecs - nowSecs;
+    return {
+      state: rem <= settings.warnMinutes * 60 ? 'WARNING' : 'COUNTDOWN',
+      remaining: rem, session: active
+    };
+  }
+  if (nowSecs < endSecs) {
+    return { state: 'LAST_START', remaining: 0, session: active };
+  }
+  return { state: 'TRACK_CLOSED', remaining: 0, session: null };
+}
+
+// ── Render ─────────────────────────────────────────────────────
+// Blink is handled entirely by CSS @keyframes — no JS timing needed.
+// Only the clock row blinks; the type label always stays solid.
+const typeEl  = document.getElementById('typeLabel');
+const clockEl = document.getElementById('clock');
+const labelEl = document.getElementById('stateLabel');
+
+function render() {
+  const { state, remaining, session } = computeState();
+
+  // WARNING blink is derived directly from the wall-clock millisecond so it
+  // stays locked to second boundaries: the number is always visible when it
+  // changes (ms=0), then hidden for the last 250 ms of each second (ms≥750).
+  // LAST_START / TRACK_CLOSED text is static — CSS animation is fine there.
+  clockEl.style.opacity = ''; // clear any inline override from WARNING
+
+  switch (state) {
+    case 'NO_SESSION':
+      typeEl.className    = 'invisible';
+      clockEl.className   = 'text-mode';
+      clockEl.textContent = 'NO SESSION';
+      labelEl.textContent = '';
+      break;
+
+    case 'PRE_SESSION':
+      typeEl.className    = '';
+      typeEl.textContent  = session.type.toUpperCase();
+      clockEl.className   = '';
+      clockEl.textContent = formatCountdown(remaining);
+      labelEl.textContent = 'TRACK OPENS AT ' + session.start;
+      break;
+
+    case 'COUNTDOWN':
+      typeEl.className    = '';
+      typeEl.textContent  = session.type.toUpperCase();
+      clockEl.className   = '';
+      clockEl.textContent = formatCountdown(remaining);
+      labelEl.textContent = 'TIME UNTIL LAST START';
+      break;
+
+    case 'WARNING':
+      typeEl.className      = '';
+      typeEl.textContent    = session.type.toUpperCase();
+      clockEl.className     = '';                                   // no CSS animation
+      clockEl.style.opacity = Date.now() % 1000 >= 750 ? '0' : '1'; // locked to wall-clock second
+      clockEl.textContent   = formatCountdown(remaining);
+      labelEl.textContent   = 'TIME UNTIL LAST START';
+      break;
+
+    case 'LAST_START':
+      typeEl.className    = '';
+      typeEl.textContent  = session.type.toUpperCase();
+      clockEl.className   = 'blink-1000';   // text is static — CSS animation is fine
+      clockEl.textContent = '00:00:00';
+      labelEl.textContent = 'LAST START';
+      break;
+
+    case 'TRACK_CLOSED':
+      typeEl.className    = 'invisible';
+      clockEl.className   = 'text-mode blink-1000';
+      clockEl.textContent = 'TRACK CLOSED';
+      labelEl.textContent = '';
+      break;
+  }
+}
+
+// 100 ms gives enough resolution to catch the 250 ms off-window cleanly.
+// The WARNING blink is wall-clock derived so the interval only affects
+// how quickly we detect the ms=750 boundary (worst case: 100 ms late).
+setInterval(render, 100);
+
+// ── Settings UI ────────────────────────────────────────────────
+function openSettings() {
+  // Populate form from current settings
+  const sel = document.getElementById('tzPreset');
+  const known = Array.from(sel.options).map(o => o.value);
+  if (known.includes(settings.tz)) {
+    sel.value = settings.tz;
+    document.getElementById('customTZ').style.display = 'none';
+  } else {
+    sel.value = 'custom';
+    document.getElementById('customTZ').style.display = 'block';
+    document.getElementById('tzCustom').value = settings.tz;
+  }
+  document.getElementById('warnMinutes').value = settings.warnMinutes;
+  renderSessionTable();
+  document.getElementById('settingsOverlay').classList.add('open');
+}
+
+function closeSettings() {
+  // Read and save timezone
+  let tz = document.getElementById('tzPreset').value;
+  if (tz === 'custom') {
+    tz = document.getElementById('tzCustom').value.trim() || settings.tz;
+  }
+  settings.tz = tz;
+  settings.warnMinutes = Math.min(30, Math.max(1,
+    parseInt(document.getElementById('warnMinutes').value, 10) || 5
+  ));
+  localStorage.setItem('tz',   settings.tz);
+  localStorage.setItem('warn', String(settings.warnMinutes));
+  document.getElementById('settingsOverlay').classList.remove('open');
+}
+
+function onTZChange(sel) {
+  document.getElementById('customTZ').style.display =
+    sel.value === 'custom' ? 'block' : 'none';
+}
+
+// Press S or Escape to toggle settings
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' || e.key === 's' || e.key === 'S') {
+    const overlay = document.getElementById('settingsOverlay');
+    if (overlay.classList.contains('open')) closeSettings();
+    else openSettings();
+  }
+});
+
+// ── Session management ─────────────────────────────────────────
+function saveSessions() {
+  sessions.sort((a, b) => timeToSecs(a.start) - timeToSecs(b.start));
+  localStorage.setItem('sessions', JSON.stringify(sessions));
+}
+
+function renderSessionTable() {
+  const container = document.getElementById('sessionTableContainer');
+  if (!sessions.length) {
+    container.innerHTML = '<p class="hint">No sessions configured.</p>';
+    return;
+  }
+  let html = `<table class="session-tbl">
+    <thead><tr><th>Type</th><th>Start</th><th>Last start</th><th>End</th><th></th></tr></thead>
+    <tbody>`;
+  sessions.forEach((s, i) => {
+    html += `<tr>
+      <td>${s.type}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="editSession(${i})" style="margin-right:4px">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="removeSession(${i})">✕</button>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  html += `<button class="btn btn-danger" onclick="clearAllSessions()">Clear all sessions</button>`;
+  container.innerHTML = html;
+}
+
+function removeSession(i) {
+  sessions.splice(i, 1);
+  saveSessions();
+  renderSessionTable();
+}
+
+function clearAllSessions() {
+  sessions = [];
+  saveSessions();
+  renderSessionTable();
+}
+
+function editSession(i) {
+  const s = sessions[i];
+  mEditIndex = i;
+  document.getElementById('mType').value      = s.type;
+  document.getElementById('mStart').value     = s.start;
+  document.getElementById('mLastStart').value = s.lastStart;
+  document.getElementById('mEnd').value       = s.end;
+  document.getElementById('mFormTitle').textContent = 'Edit session';
+  document.getElementById('mSaveBtn').textContent   = 'Save changes';
+  document.getElementById('mCancelBtn').style.display = 'block';
+  document.getElementById('manualStatus').innerHTML = '';
+  document.getElementById('mFormTitle').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  mEditIndex = -1;
+  document.getElementById('mType').value      = 'Prototype';
+  document.getElementById('mStart').value     = '';
+  document.getElementById('mLastStart').value = '';
+  document.getElementById('mEnd').value       = '';
+  document.getElementById('mFormTitle').textContent  = 'Add session manually';
+  document.getElementById('mSaveBtn').textContent    = 'Add session';
+  document.getElementById('mCancelBtn').style.display = 'none';
+  document.getElementById('manualStatus').innerHTML  = '';
+}
+
+function saveSessionForm() {
+  const type      = document.getElementById('mType').value;
+  const start     = document.getElementById('mStart').value;
+  const lastStart = document.getElementById('mLastStart').value;
+  const end       = document.getElementById('mEnd').value;
+
+  if (!start || !lastStart || !end) {
+    showInline('manualStatus', 'All time fields are required.', true); return;
+  }
+  if (timeToSecs(start) >= timeToSecs(lastStart)) {
+    showInline('manualStatus', 'Start must be before last start.', true); return;
+  }
+  if (timeToSecs(lastStart) >= timeToSecs(end)) {
+    showInline('manualStatus', 'Last start must be before end.', true); return;
+  }
+
+  const wasEditing = mEditIndex >= 0;
+  if (wasEditing) {
+    sessions[mEditIndex] = { type, start, lastStart, end };
+  } else {
+    sessions.push({ type, start, lastStart, end });
+  }
+
+  saveSessions();
+  renderSessionTable();
+  cancelEdit(); // reset form to "add" state (clears fields + index)
+  showInline('manualStatus', wasEditing ? 'Session updated.' : 'Session added.', false);
+}
+
+// ── SEM schedule import (direct browser fetch — CORS allowed) ──
+function isSEMTrackSession(activity, notes) {
+  return notes.indexOf('Last Start:') >= 0 &&
+         (activity.indexOf('Prototype') >= 0 || activity.indexOf('Urban Concept') >= 0);
+}
+
+async function loadSEMDays() {
+  const status   = document.getElementById('semStatus');
+  const dayRow   = document.getElementById('semDayRow');
+  const preview  = document.getElementById('semPreview');
+  semCache       = null;
+  semSessions    = [];
+  status.innerHTML  = '<p class="hint">Fetching schedule…</p>';
+  dayRow.style.display  = 'none';
+  preview.style.display = 'none';
+
+  try {
+    const evResp = await fetch('https://results.sem-app.com/events/current.json');
+    if (!evResp.ok) throw new Error(`Events API: ${evResp.status}`);
+    const evData = await evResp.json();
+    if (!evData.success || !evData.data.length) throw new Error('No current event found');
+
+    const eventId   = evData.data[0].eventId;
+    const eventName = evData.data[0].name;
+
+    const schResp = await fetch(`https://results.sem-app.com/${eventId}/schedule.json`);
+    if (!schResp.ok) throw new Error(`Schedule API: ${schResp.status}`);
+    semCache = await schResp.json();
+
+    // Build list of days that have track sessions
+    const trackDays = [];
+    for (const day of semCache.data) {
+      const count = (day.schedule || []).filter(
+        item => isSEMTrackSession(item.activity || '', item.notes || '')
+      ).length;
+      if (count > 0) trackDays.push({ date: day.date, label: day.day, count });
+    }
+    if (!trackDays.length) throw new Error('No track sessions found in schedule');
+
+    const sel = document.getElementById('semDaySelect');
+    sel.innerHTML = trackDays.map(d =>
+      `<option value="${d.date}">${d.label} (${d.count} session${d.count > 1 ? 's' : ''})</option>`
+    ).join('');
+
+    // Auto-select today if present
+    const today = getEventTodayStr();
+    if (trackDays.some(d => d.date === today)) sel.value = today;
+
+    status.innerHTML  = `<p class="inline-ok">📅 ${eventName}</p>`;
+    dayRow.style.display = 'block';
+    loadSEMSessionsFromCache(); // load sessions for the auto-selected day
+  } catch(e) {
+    status.innerHTML = `<p class="inline-err">Could not load schedule: ${e.message}</p>`;
+  }
+}
+
+function loadSEMSessionsFromCache() {
+  const preview = document.getElementById('semPreview');
+  const importStatus = document.getElementById('semImportStatus');
+  preview.style.display  = 'none';
+  importStatus.innerHTML = '';
+  semSessions = [];
+  if (!semCache) return;
+
+  const date = document.getElementById('semDaySelect').value;
+
+  for (const day of semCache.data) {
+    if (day.date !== date) continue;
+    for (const item of (day.schedule || [])) {
+      const activity = item.activity || '';
+      const notes    = item.notes    || '';
+      if (!isSEMTrackSession(activity, notes)) continue;
+
+      const type = activity.indexOf('Prototype') >= 0 ? 'Prototype' : 'Urban Concept';
+      // "Last Start:" is 11 chars; +1 space = offset 12; time is 5 chars "HH:MM"
+      const lsIdx     = notes.indexOf('Last Start:') + 12;
+      const lastStart = notes.substring(lsIdx, lsIdx + 5).trim();
+
+      semSessions.push({
+        type,
+        start:     item.timeStart,
+        lastStart: lastStart,
+        end:       item.timeEnd
+      });
+    }
+    break;
+  }
+
+  if (!semSessions.length) {
+    importStatus.innerHTML = '<p class="inline-err">No track sessions found for this day.</p>';
+    return;
+  }
+
+  document.getElementById('semPreviewBody').innerHTML = semSessions.map(s =>
+    `<tr>
+      <td>${s.type}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td>
+    </tr>`
+  ).join('');
+  preview.style.display = 'block';
+}
+
+function importSEMSessions() {
+  if (!semSessions.length) return;
+  sessions = [...semSessions];
+  saveSessions();
+  renderSessionTable();
+
+  const importStatus = document.getElementById('semImportStatus');
+  importStatus.innerHTML =
+    `<p class="inline-ok">${sessions.length} session${sessions.length > 1 ? 's' : ''} imported.</p>`;
+
+  // Collapse the import panel after a moment
+  setTimeout(() => {
+    document.getElementById('semDayRow').style.display  = 'none';
+    document.getElementById('semPreview').style.display = 'none';
+    document.getElementById('semStatus').innerHTML      = '';
+    importStatus.innerHTML = '';
+    semCache    = null;
+    semSessions = [];
+  }, 2000);
+}
+
+// ── Utility ────────────────────────────────────────────────────
+function showInline(id, msg, isError) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<p class="${isError ? 'inline-err' : 'inline-ok'}">${msg}</p>`;
+  if (!isError) setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Race Clock</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <header>
+    <!-- Logo inlined — no separate HTTP request, no MIME-type issues -->
+	<svg width="269" height="80" viewBox="0 0 2966 882" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+		<g transform="matrix(1,0,0,1,229.808,230.654)">
+			<rect id="Artboard3" x="-229.808" y="-230.654" width="2965.17" height="881.354" style="fill:none;"></rect>
+			<g id="Artboard31" serif:id="Artboard3">
+				<g transform="matrix(4.16667,0,0,4.16667,-3334.49,-1536.9)">
+					<g transform="matrix(61,0,0,61,957.418,464.979)">
+						<path d="M0.275,-0.462L0.495,-0.462L0.495,-0.296L0.275,-0.296L0.275,-0.166L0.507,-0.166L0.507,-0L0.079,-0L0.079,-0.754L0.507,-0.754L0.507,-0.588L0.275,-0.588L0.275,-0.462Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,991.273,464.979)">
+						<path d="M0.449,-0.346C0.432,-0.358 0.416,-0.367 0.402,-0.372C0.387,-0.377 0.372,-0.379 0.355,-0.379C0.319,-0.379 0.289,-0.367 0.266,-0.344C0.243,-0.321 0.231,-0.291 0.231,-0.254C0.231,-0.219 0.243,-0.189 0.267,-0.166C0.29,-0.143 0.32,-0.131 0.355,-0.131C0.372,-0.131 0.389,-0.134 0.404,-0.139C0.419,-0.144 0.434,-0.153 0.449,-0.165L0.449,-0.011C0.426,-0.001 0.404,0.006 0.385,0.011C0.366,0.015 0.345,0.017 0.322,0.017C0.271,0.017 0.224,0.005 0.181,-0.019C0.137,-0.042 0.104,-0.075 0.079,-0.116C0.054,-0.157 0.042,-0.203 0.042,-0.252C0.042,-0.304 0.054,-0.351 0.079,-0.393C0.104,-0.435 0.138,-0.468 0.182,-0.492C0.225,-0.516 0.274,-0.528 0.327,-0.528C0.35,-0.528 0.371,-0.526 0.39,-0.522C0.409,-0.517 0.428,-0.51 0.449,-0.499L0.449,-0.346Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1020.49,464.979)">
+						<path d="M0.349,-0.531C0.408,-0.531 0.462,-0.519 0.509,-0.496C0.556,-0.473 0.592,-0.44 0.619,-0.399C0.645,-0.357 0.658,-0.31 0.658,-0.257C0.658,-0.203 0.645,-0.155 0.619,-0.114C0.592,-0.072 0.555,-0.039 0.508,-0.016C0.461,0.007 0.407,0.019 0.347,0.019C0.288,0.019 0.235,0.007 0.189,-0.017C0.142,-0.04 0.106,-0.073 0.081,-0.116C0.055,-0.158 0.042,-0.206 0.042,-0.261C0.042,-0.298 0.05,-0.335 0.066,-0.37C0.082,-0.405 0.105,-0.435 0.134,-0.46C0.159,-0.482 0.191,-0.499 0.23,-0.512C0.268,-0.525 0.308,-0.531 0.349,-0.531ZM0.349,-0.375C0.318,-0.375 0.291,-0.364 0.268,-0.341C0.245,-0.318 0.233,-0.29 0.233,-0.259C0.233,-0.226 0.244,-0.198 0.267,-0.175C0.29,-0.152 0.317,-0.14 0.35,-0.14C0.383,-0.14 0.41,-0.152 0.433,-0.175C0.456,-0.198 0.467,-0.225 0.467,-0.258C0.467,-0.291 0.456,-0.318 0.433,-0.341C0.409,-0.364 0.382,-0.375 0.349,-0.375Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1066.42,464.979)">
+						<rect x="0" y="-0.342" width="0.286" height="0.15" style="fill:rgb(221,29,33);"></rect>
+					</g>
+					<g transform="matrix(61,0,0,61,1087.16,464.979)">
+						<path d="M0.243,-0.449C0.27,-0.475 0.296,-0.493 0.321,-0.504C0.345,-0.515 0.375,-0.52 0.409,-0.52C0.448,-0.52 0.482,-0.512 0.51,-0.497C0.537,-0.482 0.561,-0.458 0.582,-0.425C0.623,-0.489 0.681,-0.521 0.756,-0.521C0.786,-0.521 0.814,-0.515 0.84,-0.503C0.866,-0.49 0.886,-0.473 0.901,-0.452C0.92,-0.425 0.929,-0.385 0.929,-0.332L0.929,-0L0.748,-0L0.748,-0.253C0.748,-0.279 0.748,-0.297 0.747,-0.306C0.745,-0.315 0.743,-0.324 0.738,-0.334C0.733,-0.349 0.724,-0.36 0.713,-0.368C0.701,-0.376 0.687,-0.38 0.672,-0.38C0.657,-0.38 0.642,-0.376 0.629,-0.367C0.615,-0.358 0.605,-0.346 0.598,-0.332C0.589,-0.314 0.585,-0.288 0.585,-0.253L0.585,-0L0.405,-0L0.405,-0.253C0.405,-0.278 0.405,-0.296 0.404,-0.305C0.403,-0.314 0.4,-0.324 0.397,-0.334C0.392,-0.349 0.382,-0.361 0.369,-0.37C0.356,-0.379 0.342,-0.383 0.327,-0.383C0.313,-0.383 0.299,-0.379 0.286,-0.371C0.272,-0.362 0.262,-0.352 0.255,-0.34C0.25,-0.331 0.247,-0.32 0.246,-0.307C0.244,-0.294 0.243,-0.276 0.243,-0.253L0.243,-0L0.062,-0L0.062,-0.512L0.243,-0.512L0.243,-0.449Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1146.52,464.979)">
+						<path d="M0.64,-0L0.459,-0L0.459,-0.056C0.439,-0.031 0.416,-0.012 0.391,-0.001C0.366,0.011 0.336,0.017 0.301,0.017C0.253,0.017 0.209,0.005 0.17,-0.02C0.13,-0.044 0.099,-0.077 0.076,-0.119C0.053,-0.161 0.042,-0.207 0.042,-0.258C0.042,-0.308 0.053,-0.354 0.076,-0.395C0.099,-0.436 0.13,-0.469 0.169,-0.493C0.208,-0.517 0.252,-0.529 0.299,-0.529C0.332,-0.529 0.361,-0.524 0.387,-0.513C0.412,-0.502 0.436,-0.485 0.459,-0.462L0.459,-0.512L0.64,-0.512L0.64,-0ZM0.347,-0.373C0.316,-0.373 0.289,-0.362 0.266,-0.339C0.243,-0.316 0.231,-0.289 0.231,-0.258C0.231,-0.225 0.242,-0.197 0.265,-0.174C0.288,-0.151 0.315,-0.139 0.348,-0.139C0.38,-0.139 0.407,-0.151 0.43,-0.174C0.453,-0.197 0.464,-0.224 0.464,-0.257C0.464,-0.289 0.453,-0.316 0.43,-0.339C0.407,-0.362 0.38,-0.373 0.347,-0.373Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1188.18,464.979)">
+						<path d="M0.243,-0.428C0.264,-0.461 0.288,-0.484 0.314,-0.498C0.34,-0.512 0.372,-0.519 0.411,-0.519C0.423,-0.519 0.435,-0.519 0.446,-0.518L0.446,-0.345C0.431,-0.352 0.419,-0.356 0.409,-0.359C0.398,-0.362 0.385,-0.363 0.37,-0.363C0.285,-0.363 0.243,-0.315 0.243,-0.219L0.243,-0L0.062,-0L0.062,-0.512L0.243,-0.512L0.243,-0.428Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1215.81,464.979)">
+						<path d="M0.64,-0L0.459,-0L0.459,-0.056C0.439,-0.031 0.416,-0.012 0.391,-0.001C0.366,0.011 0.336,0.017 0.301,0.017C0.253,0.017 0.209,0.005 0.17,-0.02C0.13,-0.044 0.099,-0.077 0.076,-0.119C0.053,-0.161 0.042,-0.207 0.042,-0.258C0.042,-0.308 0.053,-0.354 0.076,-0.395C0.099,-0.436 0.13,-0.469 0.169,-0.493C0.208,-0.517 0.252,-0.529 0.299,-0.529C0.332,-0.529 0.361,-0.524 0.387,-0.513C0.412,-0.502 0.436,-0.485 0.459,-0.462L0.459,-0.512L0.64,-0.512L0.64,-0ZM0.347,-0.373C0.316,-0.373 0.289,-0.362 0.266,-0.339C0.243,-0.316 0.231,-0.289 0.231,-0.258C0.231,-0.225 0.242,-0.197 0.265,-0.174C0.288,-0.151 0.315,-0.139 0.348,-0.139C0.38,-0.139 0.407,-0.151 0.43,-0.174C0.453,-0.197 0.464,-0.224 0.464,-0.257C0.464,-0.289 0.453,-0.316 0.43,-0.339C0.407,-0.362 0.38,-0.373 0.347,-0.373Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1258.57,464.979)">
+						<path d="M0.267,0.017C0.202,0.017 0.157,0.001 0.132,-0.031C0.118,-0.048 0.107,-0.066 0.1,-0.086C0.093,-0.105 0.089,-0.134 0.089,-0.173L0.089,-0.366L0.029,-0.366L0.029,-0.512L0.089,-0.512L0.089,-0.666L0.269,-0.666L0.269,-0.512L0.389,-0.512L0.389,-0.366L0.269,-0.366L0.269,-0.166C0.269,-0.137 0.284,-0.123 0.315,-0.123C0.326,-0.123 0.338,-0.125 0.351,-0.129C0.363,-0.132 0.373,-0.137 0.382,-0.142L0.382,-0.002C0.353,0.011 0.314,0.017 0.267,0.017Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1284.13,464.979)">
+						<path d="M0.243,-0.447C0.268,-0.476 0.292,-0.496 0.316,-0.507C0.339,-0.518 0.37,-0.523 0.407,-0.523C0.47,-0.523 0.52,-0.504 0.555,-0.467C0.573,-0.449 0.585,-0.43 0.592,-0.409C0.599,-0.388 0.602,-0.36 0.602,-0.325L0.602,-0L0.421,-0L0.421,-0.259C0.421,-0.286 0.42,-0.304 0.419,-0.313C0.418,-0.322 0.415,-0.331 0.41,-0.34C0.405,-0.352 0.395,-0.362 0.382,-0.369C0.369,-0.376 0.354,-0.38 0.338,-0.38C0.323,-0.38 0.309,-0.377 0.296,-0.371C0.283,-0.364 0.271,-0.356 0.262,-0.346C0.255,-0.337 0.251,-0.327 0.248,-0.316C0.245,-0.305 0.243,-0.291 0.243,-0.275L0.243,-0L0.062,-0L0.062,-0.828L0.243,-0.828L0.243,-0.447Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1323.48,464.979)">
+						<path d="M0.349,-0.531C0.408,-0.531 0.462,-0.519 0.509,-0.496C0.556,-0.473 0.592,-0.44 0.619,-0.399C0.645,-0.357 0.658,-0.31 0.658,-0.257C0.658,-0.203 0.645,-0.155 0.619,-0.114C0.592,-0.072 0.555,-0.039 0.508,-0.016C0.461,0.007 0.407,0.019 0.347,0.019C0.288,0.019 0.235,0.007 0.189,-0.017C0.142,-0.04 0.106,-0.073 0.081,-0.116C0.055,-0.158 0.042,-0.206 0.042,-0.261C0.042,-0.298 0.05,-0.335 0.066,-0.37C0.082,-0.405 0.105,-0.435 0.134,-0.46C0.159,-0.482 0.191,-0.499 0.23,-0.512C0.268,-0.525 0.308,-0.531 0.349,-0.531ZM0.349,-0.375C0.318,-0.375 0.291,-0.364 0.268,-0.341C0.245,-0.318 0.233,-0.29 0.233,-0.259C0.233,-0.226 0.244,-0.198 0.267,-0.175C0.29,-0.152 0.317,-0.14 0.35,-0.14C0.383,-0.14 0.41,-0.152 0.433,-0.175C0.456,-0.198 0.467,-0.225 0.467,-0.258C0.467,-0.291 0.456,-0.318 0.433,-0.341C0.409,-0.364 0.382,-0.375 0.349,-0.375Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(61,0,0,61,1365.02,464.979)">
+						<path d="M0.243,-0.447C0.268,-0.476 0.292,-0.496 0.316,-0.507C0.339,-0.518 0.37,-0.523 0.407,-0.523C0.47,-0.523 0.52,-0.504 0.555,-0.467C0.573,-0.449 0.585,-0.43 0.592,-0.409C0.599,-0.388 0.602,-0.36 0.602,-0.325L0.602,-0L0.421,-0L0.421,-0.259C0.421,-0.286 0.42,-0.304 0.419,-0.313C0.418,-0.322 0.415,-0.331 0.41,-0.34C0.405,-0.352 0.395,-0.362 0.382,-0.369C0.369,-0.376 0.354,-0.38 0.338,-0.38C0.323,-0.38 0.309,-0.377 0.296,-0.371C0.283,-0.364 0.271,-0.356 0.262,-0.346C0.255,-0.337 0.251,-0.327 0.248,-0.316C0.245,-0.305 0.243,-0.291 0.243,-0.275L0.243,-0L0.062,-0L0.062,-0.512L0.243,-0.512L0.243,-0.447Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+				</g>
+				<g transform="matrix(4.16667,0,0,4.16667,-3264.09,-1424.61)">
+					<g transform="matrix(42,0,0,42,942.538,381.03)">
+						<path d="M0.493,-0.558C0.471,-0.575 0.45,-0.588 0.429,-0.597C0.408,-0.605 0.387,-0.609 0.364,-0.609C0.34,-0.609 0.32,-0.603 0.304,-0.591C0.288,-0.578 0.28,-0.563 0.28,-0.544C0.28,-0.537 0.282,-0.53 0.285,-0.523C0.288,-0.516 0.293,-0.511 0.298,-0.506C0.309,-0.497 0.32,-0.491 0.332,-0.486C0.344,-0.481 0.372,-0.472 0.416,-0.459C0.481,-0.44 0.529,-0.413 0.558,-0.381C0.587,-0.347 0.601,-0.303 0.601,-0.247C0.601,-0.161 0.575,-0.096 0.524,-0.052C0.497,-0.029 0.465,-0.012 0.428,0.001C0.39,0.013 0.349,0.019 0.306,0.019C0.261,0.019 0.217,0.012 0.172,-0.003C0.127,-0.017 0.085,-0.038 0.045,-0.066L0.129,-0.224C0.16,-0.197 0.189,-0.178 0.217,-0.166C0.244,-0.153 0.273,-0.147 0.302,-0.147C0.331,-0.147 0.354,-0.154 0.371,-0.167C0.388,-0.18 0.397,-0.198 0.397,-0.22C0.397,-0.241 0.389,-0.257 0.373,-0.269C0.356,-0.281 0.325,-0.294 0.279,-0.307C0.238,-0.32 0.207,-0.33 0.187,-0.339C0.166,-0.347 0.149,-0.357 0.136,-0.368C0.096,-0.401 0.076,-0.451 0.076,-0.518C0.076,-0.568 0.087,-0.612 0.109,-0.651C0.13,-0.689 0.16,-0.719 0.199,-0.74C0.238,-0.761 0.282,-0.772 0.332,-0.772C0.371,-0.772 0.412,-0.767 0.453,-0.756C0.494,-0.745 0.533,-0.73 0.571,-0.711L0.493,-0.558Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(42,0,0,42,969.838,381.03)">
+						<path d="M0.243,-0.447C0.268,-0.476 0.292,-0.496 0.316,-0.507C0.339,-0.518 0.37,-0.523 0.407,-0.523C0.47,-0.523 0.52,-0.504 0.555,-0.467C0.573,-0.449 0.585,-0.43 0.592,-0.409C0.599,-0.388 0.602,-0.36 0.602,-0.325L0.602,-0L0.421,-0L0.421,-0.259C0.421,-0.286 0.42,-0.304 0.419,-0.313C0.418,-0.322 0.415,-0.331 0.41,-0.34C0.405,-0.352 0.395,-0.362 0.382,-0.369C0.369,-0.376 0.354,-0.38 0.338,-0.38C0.323,-0.38 0.309,-0.377 0.296,-0.371C0.283,-0.364 0.271,-0.356 0.262,-0.346C0.255,-0.337 0.251,-0.327 0.248,-0.316C0.245,-0.305 0.243,-0.291 0.243,-0.275L0.243,-0L0.062,-0L0.062,-0.828L0.243,-0.828L0.243,-0.447Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(42,0,0,42,997.264,381.03)">
+						<path d="M0.225,-0.223C0.226,-0.146 0.262,-0.107 0.334,-0.107C0.355,-0.107 0.373,-0.111 0.387,-0.118C0.4,-0.125 0.413,-0.138 0.424,-0.156L0.598,-0.156C0.591,-0.134 0.585,-0.117 0.579,-0.104C0.572,-0.091 0.564,-0.078 0.553,-0.066C0.53,-0.039 0.499,-0.018 0.461,-0.003C0.422,0.012 0.38,0.02 0.334,0.02C0.275,0.02 0.224,0.009 0.18,-0.014C0.136,-0.036 0.102,-0.068 0.078,-0.109C0.054,-0.15 0.042,-0.197 0.042,-0.252C0.042,-0.307 0.054,-0.356 0.077,-0.398C0.099,-0.439 0.133,-0.471 0.176,-0.494C0.219,-0.516 0.269,-0.527 0.327,-0.527C0.414,-0.527 0.482,-0.502 0.532,-0.451C0.581,-0.4 0.606,-0.33 0.606,-0.241L0.606,-0.223L0.225,-0.223ZM0.437,-0.328C0.431,-0.354 0.419,-0.374 0.4,-0.389C0.381,-0.403 0.358,-0.41 0.331,-0.41C0.304,-0.41 0.281,-0.403 0.263,-0.389C0.245,-0.374 0.234,-0.354 0.229,-0.328L0.437,-0.328Z" style="fill:rgb(221,29,33);fill-rule:nonzero;"></path>
+					</g>
+					<g transform="matrix(42,0,0,42,1024.27,381.03)">
+						<rect x="0.062" y="-0.828" width="0.181" height="0.828" style="fill:rgb(221,29,33);"></rect>
+					</g>
+					<g transform="matrix(42,0,0,42,1036.62,381.03)">
+						<rect x="0.062" y="-0.828" width="0.181" height="0.828" style="fill:rgb(221,29,33);"></rect>
+					</g>
+				</g>
+				<g transform="matrix(6.04325,0,0,6.04325,-122.916,-128.462)">
+					<g id="path7">
+						<path d="M54.6,87.8L36.6,87.8L35,74.5L24,66.6C23.5,64.3 23.3,61.9 23.3,59.5C23.3,39.9 39.2,24.1 58.7,24.1C78.3,24.1 94.1,40 94.1,59.5C94.1,61.9 93.9,64.3 93.4,66.6L82.5,74.5L80.8,87.8L62.8,87.8L61.8,88.6C60.9,89.3 59.8,89.6 58.7,89.6C57.6,89.6 56.5,89.2 55.6,88.6L54.6,87.8Z" style="fill:rgb(0,255,0);fill-rule:nonzero;"></path>
+						<path d="M53.625,90.578L34.136,90.578L32.388,76.044L21.512,68.234L21.285,67.19C20.744,64.699 20.522,62.1 20.522,59.5C20.522,38.362 37.67,21.322 58.7,21.322C79.838,21.322 96.878,38.47 96.878,59.5C96.878,62.1 96.656,64.699 96.115,67.19L95.889,68.227L85.103,76.044L83.246,90.578L63.775,90.578L63.521,90.781L63.506,90.793C62.107,91.881 60.409,92.378 58.7,92.378C57.056,92.378 55.404,91.808 54.059,90.912L53.959,90.845L53.625,90.578ZM54.6,87.8L55.6,88.6C56.5,89.2 57.6,89.6 58.7,89.6C59.8,89.6 60.9,89.3 61.8,88.6L62.8,87.8L80.8,87.8L82.5,74.5L93.4,66.6C93.9,64.3 94.1,61.9 94.1,59.5C94.1,40 78.3,24.1 58.7,24.1C39.2,24.1 23.3,39.9 23.3,59.5C23.3,61.9 23.5,64.3 24,66.6L35,74.5L36.6,87.8L54.6,87.8Z" style="fill:white;"></path>
+					</g>
+					<g transform="matrix(0.689474,0,0,0.689474,-517.418,-223.421)">
+						<rect x="828.5" y="416.5" width="14.5" height="38.5" style="fill:white;"></rect>
+					</g>
+					<path id="path9" d="M54.6,87.8L36.6,87.8L35,74.5L24,66.6C23.5,64.3 23.3,61.9 23.3,59.5C23.3,39.9 39.2,24.1 58.7,24.1C78.3,24.1 94.1,40 94.1,59.5C94.1,61.9 93.9,64.3 93.4,66.6L82.5,74.5L80.8,87.8L62.8,87.8L61.8,88.6C60.9,89.3 59.8,89.6 58.7,89.6C57.6,89.6 56.5,89.2 55.6,88.6L54.6,87.8Z" style="fill:rgb(251,206,7);fill-rule:nonzero;"></path>
+					<path id="path11" d="M54.6,87.8L36.6,87.8L35,74.5L24,66.6C23.5,64.3 23.3,61.9 23.3,59.5C23.3,39.9 39.2,24.1 58.7,24.1C78.2,24.1 94.1,40 94.1,59.5C94.1,61.9 93.9,64.3 93.4,66.6L82.5,74.5L80.8,87.8L62.8,87.8L61.8,88.6C60.9,89.3 59.8,89.6 58.7,89.6C57.6,89.6 56.5,89.2 55.6,88.6L54.6,87.8ZM55.2,81.6L42.1,81.6L40.8,71L30,63.2C29.7,62 29.5,60.7 29.5,59.4C29.5,57.3 29.9,55.2 30.8,53.3L49.9,72.6L31.4,49.7C32.1,46.7 33.7,44.1 36,42L52.6,70.7L37.9,39.4C39.8,36.9 42.5,35 45.5,34.1L55.7,69.7L48.3,32.6C50.6,31.3 53.1,30.7 55.7,30.7C56.2,30.7 56.8,30.7 57.3,30.8L58.8,69.3L60.3,30.8C60.8,30.7 61.4,30.7 61.9,30.7C64.5,30.7 67,31.4 69.3,32.6L61.9,69.7L72.1,34C75.1,34.9 77.8,36.8 79.7,39.3L64.9,70.7L81.5,42C83.8,44 85.4,46.7 86.1,49.7L67.6,72.6L86.7,53.3C87.6,55.2 88,57.3 88,59.4C88,60.7 87.8,61.9 87.5,63.2L76.7,71L75.4,81.6L62.4,81.6L60.4,83C59.9,83.4 59.3,83.5 58.7,83.5C58.1,83.5 57.5,83.3 57,83L55.2,81.6Z" style="fill:rgb(221,29,33);"></path>
+				</g>
+			</g>
+		</g>
+	</svg>
+    <span class="header-title">Race Clock</span>
+  </header>
+
+  <main>
+    <div id="apBanner" style="display:none" class="ap-banner">
+      No WiFi &mdash; AP mode active. Connect to <strong>RaceClock</strong>
+      (password: <strong>raceclock1</strong>), then open <strong>192.168.4.1</strong>.
+      Clock will not show correct time until network is available.
+    </div>
+    <div class="desktop-cols">
+
+      <!-- Left column: sessions -->
+      <div class="col-sessions card">
+        <p class="section-title">Sessions today</p>
+        <div id="sessionList">Loading...</div>
+
+        <hr class="divider">
+        <button class="secondary" tabindex="1" onclick="showAddForm()">+ Add session manually</button>
+        <button class="secondary" tabindex="2" id="semToggleBtn" onclick="toggleSEMImport()">↓ Import from official schedule</button>
+
+        <div id="semPanel" style="display:none; margin-top:12px;">
+          <div id="semLoading" class="hint"        style="display:none">Fetching schedule…</div>
+          <div id="semError"   class="status error" style="display:none"></div>
+          <div id="semInfo"                         style="display:none">
+            <p  id="semEventName" class="hint" style="margin-bottom:12px;"></p>
+            <label>Select day</label>
+            <select id="semDaySelect" tabindex="3" onchange="loadSEMSessions()"></select>
+            <div id="semPreview" style="display:none">
+              <table class="session-table">
+                <thead><tr><th>Type</th><th>Start</th><th>Last start</th><th>End</th></tr></thead>
+                <tbody id="semPreviewBody"></tbody>
+              </table>
+              <button tabindex="4" onclick="importSEMSessions()">Import — replaces all current sessions</button>
+              <div id="semImportStatus" class="status" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+
+        <hr class="divider">
+        <button class="danger" tabindex="5" onclick="clearAll()">Clear all sessions</button>
+      </div>
+
+      <!-- Right column: settings + clock -->
+      <div class="col-settings">
+
+        <div class="card">
+          <p class="time-label">Local event time</p>
+          <div class="time-now" id="clockDisplay">--:--:--</div>
+          <p class="sync-status" id="syncStatus"></p>
+        </div>
+
+        <div class="card">
+          <p class="section-title">Display</p>
+          <div class="p10-panel">
+            <div class="p10-line p10-small" id="p10Top"    style="display:none"></div>
+            <div class="p10-line p10-big"   id="p10Bottom">--</div>
+          </div>
+          <hr class="divider">
+          <label>Override text</label>
+          <input type="text" id="overrideInput" tabindex="6" placeholder="Override text">
+          <div class="override-actions">
+            <button tabindex="7" onclick="setOverride()">Show on display</button>
+            <button class="secondary" tabindex="8" onclick="clearOverride()">✕ Clear</button>
+          </div>
+          <div id="overrideStatus" class="status" style="display:none"></div>
+        </div>
+
+        <div class="card">
+          <p class="section-title">Settings</p>
+
+          <label>Event location</label>
+          <select id="tzPreset" tabindex="9" onchange="onTZChange(this)">
+            <option value="Europe/Warsaw">Kamień Śląski, Poland (CET)</option>
+            <option value="Asia/Qatar">Doha, Qatar</option>
+            <option value="America/Indiana/Indianapolis">Indianapolis, United States</option>
+            <option value="America/Sao_Paulo">Rio de Janeiro, Brazil</option>
+            <option value="custom">Other (enter below)</option>
+          </select>
+          <div class="custom-tz" id="customTZ">
+            <label>IANA timezone name</label>
+            <input type="text" id="tzCustom" tabindex="10" placeholder="e.g. Asia/Dubai">
+            <p class="hint">
+              Full list:
+              <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+                 target="_blank">wikipedia.org/wiki/List_of_tz_database_time_zones</a>
+            </p>
+          </div>
+
+          <div class="warning-row">
+            <label>Warning threshold</label>
+            <input type="number" id="warnMinutes" tabindex="11" min="1" max="30" value="5">
+            <span style="font-size:12px;color:#888">minutes</span>
+          </div>
+
+          <button tabindex="12" onclick="saveSettings()">Save settings</button>
+          <div id="settingsStatus" style="display:none" class="status"></div>
+        </div>
+
+        <div class="card">
+          <p class="section-title">Web Files</p>
+          <label>Replace a file on the device</label>
+          <input type="file" id="webFileInput" tabindex="13" accept=".html,.css">
+          <p class="hint">Accepted: index.html, style.css</p>
+          <button tabindex="14" onclick="uploadWebFile()">Upload</button>
+          <div id="uploadStatus" class="status" style="display:none"></div>
+        </div>
+
+        <div class="card">
+          <p class="section-title">Firmware</p>
+          <p class="time-label">Installed version</p>
+          <div class="time-now" id="fwVersion" style="font-size:22px;letter-spacing:3px">—</div>
+          <hr class="divider">
+          <button tabindex="15" onclick="checkForUpdate()">Check for updates</button>
+          <div id="updateStatus" class="status" style="display:none"></div>
+          <div id="updateActions" style="display:none;margin-top:6px">
+            <button class="danger" tabindex="16" onclick="installUpdate()">
+              Install update
+            </button>
+          </div>
+        </div>
+
+      </div><!-- .col-settings -->
+    </div><!-- .desktop-cols -->
+
+    <!-- Add / edit session form -->
+    <div id="addForm" class="card" style="display:none">
+      <p class="section-title" id="formTitle">Add session</p>
+      <input type="hidden" id="editIndex" value="-1">
+
+      <div class="form-row">
+        <div class="form-field">
+          <label>Type</label>
+          <select id="sessionType" tabindex="20">
+            <option value="Prototype">Prototype</option>
+            <option value="Urban Concept">Urban Concept</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Start</label>
+          <input type="time" id="sessionStart" tabindex="21">
+        </div>
+        <div class="form-field">
+          <label>Last start</label>
+          <input type="time" id="sessionLastStart" tabindex="22">
+        </div>
+        <div class="form-field">
+          <label>End</label>
+          <input type="time" id="sessionEnd" tabindex="23">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button tabindex="24" onclick="saveSession()">Save session</button>
+        <button class="secondary" tabindex="25" onclick="hideAddForm()">Cancel</button>
+      </div>
+      <div id="formStatus" style="display:none" class="status"></div>
+    </div>
+
+  </main>
+
+  <!-- Confirmation dialog -->
+  <div id="confirmOverlay">
+    <div class="confirm-box">
+      <p id="confirmMessage"></p>
+      <button id="confirmOK"     tabindex="30">Confirm</button>
+      <button id="confirmCancel" tabindex="31" class="secondary">Cancel</button>
+    </div>
+  </div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let sessions     = [];
+let settings     = { tz: "Europe/Warsaw", warnMinutes: 5 };
+let deviceOffset = 0;   // ms difference between device time and browser time
+
+// ── Init ───────────────────────────────────────────────
+window.onload = () => {
+  loadAll();
+  syncDeviceClock();
+  fetchDisplay();
+  setInterval(updateClock,     1000);
+  setInterval(syncDeviceClock, 60000);
+  setInterval(fetchDisplay,    1000);
+};
+
+async function loadAll() {
+  await loadSettings();
+  await loadSessions();
+  await loadOverride();
+  loadVersion();   // fire-and-forget; fills #fwVersion
+}
+
+// ── Clock — synced to device time ──────────────────────
+async function syncDeviceClock() {
+  try {
+    const before = Date.now();
+    const r      = await fetch('/api/time');
+    const after  = Date.now();
+    const data   = await r.json();
+    const latency    = (after - before) / 2;
+    const deviceTime = data.epoch * 1000 + latency;
+    deviceOffset     = deviceTime - Date.now();
+    updateSyncStatus(data.synced);
+  } catch(e) { /* keep offset at 0 */ }
+}
+
+function updateSyncStatus(synced) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  if (synced) {
+    el.textContent = 'NTP synced';
+    el.className   = 'sync-status synced';
+  } else {
+    el.textContent = 'NTP not synced — time may be wrong';
+    el.className   = 'sync-status unsynced';
+  }
+}
+
+function updateClock() {
+  const now = new Date(Date.now() + deviceOffset);
+  try {
+    const timeStr = now.toLocaleTimeString('en-GB', {
+      timeZone: settings.tz,
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    });
+    document.getElementById('clockDisplay').textContent = timeStr;
+  } catch(e) {
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    document.getElementById('clockDisplay').textContent = `${h}:${m}:${s}`;
+  }
+}
+
+// ── Confirm dialog ─────────────────────────────────────
+function confirm(message) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('confirmOverlay');
+    document.getElementById('confirmMessage').textContent = message;
+    overlay.classList.add('visible');
+    document.getElementById('confirmOK').onclick = () => {
+      overlay.classList.remove('visible'); resolve(true);
+    };
+    document.getElementById('confirmCancel').onclick = () => {
+      overlay.classList.remove('visible'); resolve(false);
+    };
+  });
+}
+
+// ── Settings ───────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const r = await fetch('/api/settings');
+    settings = await r.json();
+    const sel         = document.getElementById('tzPreset');
+    const knownValues = Array.from(sel.options).map(o => o.value);
+    if (knownValues.includes(settings.tz)) {
+      sel.value = settings.tz;
+    } else {
+      sel.value = 'custom';
+      document.getElementById('customTZ').style.display = 'block';
+      document.getElementById('tzCustom').value = settings.tz;
+    }
+    document.getElementById('warnMinutes').value = settings.warnMinutes;
+    if (settings.apMode) {
+      document.getElementById('apBanner').style.display = 'block';
+    }
+  } catch(e) { console.error('Settings load failed', e); }
+}
+
+async function saveSettings() {
+  let tz = document.getElementById('tzPreset').value;
+  if (tz === 'custom') {
+    tz = document.getElementById('tzCustom').value.trim();
+    if (!tz) { showStatus('settingsStatus', 'Enter a timezone name.', true); return; }
+  }
+  const warnMinutes = parseInt(document.getElementById('warnMinutes').value) || 5;
+  const r = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tz, warnMinutes })
+  });
+  const result = await r.json();
+  if (result.ok) {
+    settings = { ...settings, tz, warnMinutes };
+    showStatus('settingsStatus', 'Settings saved.', false);
+    syncDeviceClock();
+  } else {
+    showStatus('settingsStatus', result.error || 'Failed.', true);
+  }
+}
+
+function onTZChange(sel) {
+  document.getElementById('customTZ').style.display =
+    sel.value === 'custom' ? 'block' : 'none';
+}
+
+// ── Sessions ───────────────────────────────────────────
+async function loadSessions() {
+  try {
+    const r  = await fetch('/api/sessions');
+    sessions = await r.json();
+    renderSessions();
+  } catch(e) {
+    document.getElementById('sessionList').innerHTML =
+      '<p style="color:#aaa;font-size:13px">No sessions loaded.</p>';
+  }
+}
+
+function renderSessions() {
+  const el = document.getElementById('sessionList');
+  if (!sessions.length) {
+    el.innerHTML =
+      '<p style="color:#aaa;font-size:13px;margin-bottom:12px">No sessions configured.</p>';
+    return;
+  }
+
+  const nowMins = getEventNowMins();
+  const max     = settings.maxSessions || 20;
+
+  let html = `<p class="session-count">${sessions.length} / ${max} sessions</p>`;
+  html += '<table class="session-table"><thead><tr>' +
+    '<th>Type</th><th>Start</th><th>Last start</th><th>End</th><th></th>' +
+    '</tr></thead><tbody>';
+
+  sessions.forEach((s, i) => {
+    const startMins = timeToMins(s.start);
+    const endMins   = timeToMins(s.end);
+    let rowClass = '', badge = '';
+    // Type column always shows vehicle category; badge colour + row colour convey status
+    const typeLabel = s.type === 'Prototype' ? 'Proto' : 'Urban';
+    const typeClass = s.type === 'Prototype' ? 'proto' : 'urban';
+    if (nowMins > endMins) {
+      rowClass = 'past';
+      badge    = `<span class="badge past">${typeLabel}</span>`;
+    } else if (nowMins >= startMins) {
+      rowClass = 'active';
+      badge    = `<span class="badge active">${typeLabel}</span>`;
+    } else {
+      badge = `<span class="badge ${typeClass}">${typeLabel}</span>`;
+    }
+    html += `<tr class="${rowClass}">
+      <td>${badge}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td>
+      <td><div class="row-actions">
+        <button class="btn-small btn-edit"   onclick="editSession(${i})">Edit</button>
+        <button class="btn-small btn-delete" onclick="deleteSession(${i})">Del</button>
+      </div></td></tr>`;
+  });
+
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function timeToMins(t) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function getEventNowMins() {
+  const now = new Date(Date.now() + deviceOffset);
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: settings.tz, hour: 'numeric', minute: 'numeric', hour12: false
+    }).formatToParts(now);
+    const h = parseInt(parts.find(p => p.type === 'hour').value);
+    const m = parseInt(parts.find(p => p.type === 'minute').value);
+    return h * 60 + m;
+  } catch(e) {
+    return now.getHours() * 60 + now.getMinutes();
+  }
+}
+
+// ── Add / edit form ────────────────────────────────────
+function showAddForm() {
+  document.getElementById('formTitle').textContent    = 'Add session';
+  document.getElementById('editIndex').value          = -1;
+  document.getElementById('sessionType').value        = 'Prototype';
+  document.getElementById('sessionStart').value       = '';
+  document.getElementById('sessionLastStart').value   = '';
+  document.getElementById('sessionEnd').value         = '';
+  document.getElementById('formStatus').style.display = 'none';
+  document.getElementById('addForm').style.display    = 'block';
+  document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideAddForm() {
+  document.getElementById('addForm').style.display = 'none';
+}
+
+function editSession(i) {
+  const s = sessions[i];
+  document.getElementById('formTitle').textContent    = 'Edit session';
+  document.getElementById('editIndex').value          = i;
+  document.getElementById('sessionType').value        = s.type;
+  document.getElementById('sessionStart').value       = s.start;
+  document.getElementById('sessionLastStart').value   = s.lastStart;
+  document.getElementById('sessionEnd').value         = s.end;
+  document.getElementById('formStatus').style.display = 'none';
+  document.getElementById('addForm').style.display    = 'block';
+  document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function saveSession() {
+  const type      = document.getElementById('sessionType').value;
+  const start     = document.getElementById('sessionStart').value;
+  const lastStart = document.getElementById('sessionLastStart').value;
+  const end       = document.getElementById('sessionEnd').value;
+  const idx       = parseInt(document.getElementById('editIndex').value);
+
+  if (!start || !lastStart || !end) {
+    showStatus('formStatus', 'All time fields are required.', true); return;
+  }
+  if (timeToMins(start) >= timeToMins(lastStart)) {
+    showStatus('formStatus', 'Session start must be before last start.', true); return;
+  }
+  if (timeToMins(lastStart) >= timeToMins(end)) {
+    showStatus('formStatus', 'Last start must be before session end.', true); return;
+  }
+
+  const nowMins = getEventNowMins();
+  if (idx >= 0) {
+    const existing = sessions[idx];
+    const isActive = nowMins >= timeToMins(existing.start) &&
+                     nowMins <= timeToMins(existing.end);
+    if (isActive) {
+      const ok = await confirm(
+        `"${existing.type}" session is currently active. Update it anyway?`);
+      if (!ok) return;
+    }
+  }
+
+  const r = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ index: idx, session: { type, start, lastStart, end } })
+  });
+  const result = await r.json();
+  if (result.ok) { await loadSessions(); hideAddForm(); }
+  else showStatus('formStatus', result.error || 'Failed to save.', true);
+}
+
+async function deleteSession(i) {
+  const s      = sessions[i];
+  const nowM   = getEventNowMins();
+  const active = nowM >= timeToMins(s.start) && nowM <= timeToMins(s.end);
+  const msg    = active
+    ? `"${s.type}" is currently active. Delete it anyway?`
+    : `Delete ${s.type} session (${s.start}–${s.end})?`;
+  const ok = await confirm(msg);
+  if (!ok) return;
+  const r = await fetch('/api/sessions/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ index: i })
+  });
+  const result = await r.json();
+  if (result.ok) await loadSessions();
+}
+
+async function clearAll() {
+  const ok = await confirm('Clear all sessions? This cannot be undone.');
+  if (!ok) return;
+  const r      = await fetch('/api/sessions/clear', { method: 'POST' });
+  const result = await r.json();
+  if (result.ok) await loadSessions();
+}
+
+// ── P10 display preview ────────────────────────────────
+async function fetchDisplay() {
+  try {
+    const r = await fetch('/api/display');
+    const d = await r.json();
+    renderP10(d);
+  } catch(e) {}
+}
+
+function renderP10(d) {
+  const top    = document.getElementById('p10Top');
+  const bottom = document.getElementById('p10Bottom');
+
+  // Override: show override text, scroll if flagged
+  if (d.state === 'OVERRIDE') {
+    top.style.display  = 'none';
+    bottom.textContent = d.line1 || '';
+    bottom.className   = ('p10-line p10-big' + (d.scroll ? ' p10-scroll' : '')).trim();
+    return;
+  }
+
+  // blinkMs=750 → WARNING (750 ms on / 250 ms off); blinkMs=1000 → LAST_START / TRACK_CLOSED
+  const blink = d.blinkMs === 750  ? 'p10-blink-warning' :
+                d.blinkMs === 1000 ? 'p10-blink-1000'   : '';
+
+  if (d.line2) {
+    // Two-row: type label (top, solid) + time (bottom, blinks when in WARNING / LAST_START)
+    // Type never blinks — it stays solid to anchor the display.
+    top.textContent  = d.line1 || '';
+    top.className    = 'p10-line p10-small';
+    top.style.display = '';
+    bottom.textContent = d.line2;
+    bottom.className   = ('p10-line p10-big ' + blink).trim();
+  } else {
+    top.style.display = 'none';
+    bottom.textContent = d.line1 || '';
+    bottom.className   = ('p10-line p10-big ' + blink).trim();
+  }
+}
+
+// ── SEM schedule import ─────────────────────────────────
+let semSessions = [];
+let semPanelOpen = false;
+
+function toggleSEMImport() {
+  semPanelOpen = !semPanelOpen;
+  document.getElementById('semPanel').style.display = semPanelOpen ? 'block' : 'none';
+  document.getElementById('semToggleBtn').textContent =
+    semPanelOpen ? '↑ Hide schedule import' : '↓ Import from official schedule';
+  if (semPanelOpen) loadSEMDays();
+}
+
+async function loadSEMDays() {
+  const loading = document.getElementById('semLoading');
+  const info    = document.getElementById('semInfo');
+  const err     = document.getElementById('semError');
+  const preview = document.getElementById('semPreview');
+  loading.style.display = 'block';
+  info.style.display    = 'none';
+  err.style.display     = 'none';
+  preview.style.display = 'none';
+  try {
+    const r = await fetch('/api/sem/days');
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    document.getElementById('semEventName').textContent = d.eventName;
+    const sel = document.getElementById('semDaySelect');
+    sel.innerHTML = d.days.map(day =>
+      `<option value="${day.date}">${day.day} (${day.count} session${day.count > 1 ? 's' : ''})</option>`
+    ).join('');
+    // Auto-select today in the event timezone
+    try {
+      const now      = new Date(Date.now() + deviceOffset);
+      const todayStr = now.toLocaleDateString('en-CA', { timeZone: settings.tz }); // YYYY-MM-DD
+      if (d.days.some(day => day.date === todayStr)) sel.value = todayStr;
+    } catch(e) { /* keep first option */ }
+    loading.style.display = 'none';
+    info.style.display    = 'block';
+    loadSEMSessions(); // auto-load the selected day
+  } catch(e) {
+    loading.style.display = 'none';
+    err.textContent = 'Could not load schedule: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+async function loadSEMSessions() {
+  const date    = document.getElementById('semDaySelect').value;
+  const preview = document.getElementById('semPreview');
+  const err     = document.getElementById('semError');
+  preview.style.display = 'none';
+  err.style.display     = 'none';
+  try {
+    const r = await fetch('/api/sem/sessions?date=' + date);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    semSessions = d;
+    document.getElementById('semPreviewBody').innerHTML = d.map(s =>
+      `<tr><td>${s.type}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td></tr>`
+    ).join('');
+    preview.style.display = 'block';
+  } catch(e) {
+    err.textContent = 'Could not load sessions: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+async function importSEMSessions() {
+  if (!semSessions.length) return;
+  let ok = 0, fail = 0;
+  try {
+    const clearR = await fetch('/api/sessions/clear', { method: 'POST' });
+    if (!clearR.ok) throw new Error('clear failed');
+    for (const s of semSessions) {
+      const r = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: -1, session: s })
+      });
+      const d = await r.json();
+      if (d.ok) ok++; else fail++;
+    }
+    loadSessions();
+    if (fail === 0) {
+      showStatus('semImportStatus', `${ok} session${ok > 1 ? 's' : ''} imported.`, false);
+      setTimeout(() => {
+        semPanelOpen = false;
+        document.getElementById('semPanel').style.display   = 'none';
+        document.getElementById('semToggleBtn').textContent = '↓ Import from official schedule';
+      }, 2000);
+    } else {
+      showStatus('semImportStatus',
+        `${ok} imported, ${fail} rejected — check for overlaps.`, true);
+    }
+  } catch(e) {
+    showStatus('semImportStatus', 'Import failed: ' + e.message, true);
+  }
+}
+
+// ── Override display ────────────────────────────────────
+async function loadOverride() {
+  try {
+    const r = await fetch('/api/override');
+    const d = await r.json();
+    document.getElementById('overrideInput').value = d.text || '';
+    if (d.text) showStatus('overrideStatus', 'Override active: "' + d.text + '"', false);
+  } catch(e) {}
+}
+
+async function setOverride() {
+  const text = document.getElementById('overrideInput').value.trim();
+  if (!text) { clearOverride(); return; }
+  try {
+    const r = await fetch('/api/override', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    const d = await r.json();
+    if (d.ok) showStatus('overrideStatus', 'Showing: "' + text + '"', false);
+    else      showStatus('overrideStatus', 'Failed.', true);
+  } catch(e) { showStatus('overrideStatus', 'Error.', true); }
+}
+
+async function clearOverride() {
+  document.getElementById('overrideInput').value = '';
+  try {
+    await fetch('/api/override', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: '' })
+    });
+    showStatus('overrideStatus', 'Override cleared — clock resumed.', false);
+  } catch(e) { showStatus('overrideStatus', 'Error.', true); }
+}
+
+// ── Web file upload ─────────────────────────────────────
+async function uploadWebFile() {
+  const input = document.getElementById('webFileInput');
+  if (!input.files.length) {
+    showStatus('uploadStatus', 'Select a file first.', true); return;
+  }
+  const file = input.files[0];
+  const allowed = ['index.html', 'style.css'];
+  if (!allowed.includes(file.name)) {
+    showStatus('uploadStatus', 'Only index.html, style.css or logo.svg allowed.', true); return;
+  }
+  showStatus('uploadStatus', 'Uploading…', false);
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) showStatus('uploadStatus', file.name + ' uploaded — reload to see changes.', false);
+    else      showStatus('uploadStatus', 'Upload failed.', true);
+  } catch (e) { showStatus('uploadStatus', 'Upload error.', true); }
+}
+
+// ── Firmware update ────────────────────────────────────
+async function loadVersion() {
+  try {
+    const r = await fetch('/api/version');
+    const d = await r.json();
+    document.getElementById('fwVersion').textContent = d.version || '—';
+  } catch(e) {}
+}
+
+async function checkForUpdate() {
+  const statusEl  = document.getElementById('updateStatus');
+  const actionsEl = document.getElementById('updateActions');
+  actionsEl.style.display = 'none';
+  showStatus('updateStatus', 'Checking GitHub…', false);
+  try {
+    const r = await fetch('/api/checkupdate');
+    const d = await r.json();
+    if (d.error) { showStatus('updateStatus', d.error, true); return; }
+    if (d.updateAvailable) {
+      // Persist this message — user needs to see it to hit Install
+      statusEl.textContent    = `Update available: v${d.latest} (installed: v${d.current})`;
+      statusEl.className      = 'status';
+      statusEl.style.display  = 'block';
+      actionsEl.style.display = 'block';
+    } else {
+      showStatus('updateStatus', `Up to date (v${d.current})`, false);
+    }
+  } catch(e) { showStatus('updateStatus', 'Check failed: ' + e.message, true); }
+}
+
+async function installUpdate() {
+  const ok = await confirm('Install firmware update? The device will reboot.');
+  if (!ok) return;
+  const statusEl  = document.getElementById('updateStatus');
+  const actionsEl = document.getElementById('updateActions');
+  actionsEl.style.display = 'none';
+  // Persist "installing" message throughout the reboot wait
+  statusEl.textContent   = 'Downloading & installing… do not close this page.';
+  statusEl.className     = 'status';
+  statusEl.style.display = 'block';
+  try {
+    await fetch('/api/doupdate', { method: 'POST' });
+  } catch(e) { /* device may reboot before the response arrives */ }
+  // Poll /api/version every 3 s until the device comes back up
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts++;
+    if (attempts > 60) {                          // 3 min timeout
+      clearInterval(poll);
+      showStatus('updateStatus', 'Update timed out — check device manually.', true);
+      return;
+    }
+    try {
+      const r = await fetch('/api/version');
+      const d = await r.json();
+      clearInterval(poll);
+      document.getElementById('fwVersion').textContent = d.version || '—';
+      // Persist success message — important enough to leave on screen
+      statusEl.textContent   = `Updated to v${d.version} — device rebooted successfully.`;
+      statusEl.className     = 'status';
+      statusEl.style.display = 'block';
+    } catch(e) { /* still rebooting — try again */ }
+  }, 3000);
+}
+
+// ── Utilities ──────────────────────────────────────────
+function showStatus(id, msg, isError) {
+  const el      = document.getElementById(id);
+  el.textContent = msg;
+  el.className  = 'status' + (isError ? ' error' : '');
+  el.style.display = 'block';
+  if (!isError) setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+</script>
+</body>
+</html>

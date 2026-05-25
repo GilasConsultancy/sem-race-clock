@@ -1,0 +1,417 @@
+/* ─── Reset & Base ────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f0f0f0;
+  color: #1a1a1a;
+  min-height: 100vh;
+}
+
+/* ─── Header ──────────────────────────────────────────── */
+header {
+  background: #fff;
+  border-bottom: 3px solid #FBCE07;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.logo-svg { height: 70px; width: auto; display: block; }
+.header-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #DD1D21;
+  letter-spacing: 2px;
+  border-left: 2px solid #e0e0e0;
+  padding-left: 20px;
+}
+
+/* ─── Main layout ─────────────────────────────────────── */
+main {
+  max-width: 520px;
+  margin: 20px auto;
+  padding: 0 14px 40px;
+}
+
+@media (min-width: 700px) {
+  main { max-width: 1040px; }
+
+  .desktop-cols {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .col-sessions { flex: 1 1 0; min-width: 0; }
+  .col-settings { flex: 0 0 300px; display: flex; flex-direction: column; gap: 16px; }
+}
+
+/* ─── Cards ───────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05);
+}
+
+/* ─── Section titles ──────────────────────────────────── */
+.section-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #DD1D21;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #FBCE07;
+}
+
+/* ─── Labels ──────────────────────────────────────────── */
+label {
+  font-size: 13px;
+  font-weight: bold;
+  color: #555;
+  display: block;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
+/* ─── Form controls (global) ──────────────────────────── */
+input[type=file] {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1.5px solid #ddd;
+  background: #fafafa;
+  color: #555;
+  font-size: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+input[type=file]:hover { border-color: #bbb; }
+
+input[type=time],
+input[type=text],
+input[type=number],
+select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1.5px solid #ddd;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 16px;
+  margin-bottom: 16px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input:focus, select:focus {
+  outline: none;
+  border-color: #FBCE07;
+  box-shadow: 0 0 0 3px rgba(251,206,7,0.25);
+}
+input[type=number] { width: 70px; }
+input[type=text]::placeholder { color: #bbb; }
+
+/* ─── Session form: time inputs + type dropdown ──────── */
+/* Large, bold, centred — all fields look like a clock face */
+.form-field input[type=time] {
+  font-size: 20px;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 2px;
+  padding: 10px 12px;
+}
+/* Remove browser-native chrome from the type select so it
+   obeys padding/height exactly like the time inputs do.   */
+/* #sessionType */ select {
+  font-size: 20px;
+  font-weight: bold;
+  color: #1a1a1a;
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 10px 38px 10px 12px;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 18px;
+}
+
+/* ─── Divider ─────────────────────────────────────────── */
+.divider {
+  border: none;
+  border-top: 1px solid #efefef;
+  margin: 16px 0;
+}
+
+/* ─── Buttons ─────────────────────────────────────────── */
+button {
+  width: 100%;
+  padding: 13px;
+  font-size: 15px;
+  font-weight: bold;
+  background: #FBCE07;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+  transition: background 0.15s;
+}
+button:hover { background: #e6bc00; }
+
+button.secondary {
+  background: #f0f0f0;
+  color: #555;
+  margin-top: 8px;
+  font-size: 14px;
+}
+button.secondary:hover { background: #e4e4e4; }
+
+button.danger {
+  background: #DD1D21;
+  color: #fff;
+  margin-top: 8px;
+  font-size: 14px;
+}
+button.danger:hover { background: #bb1418; }
+
+/* ─── Status messages ─────────────────────────────────── */
+.status {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: center;
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+.status.error {
+  background: #ffebee;
+  color: #c62828;
+  border-color: #ffcdd2;
+}
+
+/* ─── Clock display ───────────────────────────────────── */
+.time-label {
+  text-align: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: #aaa;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+.time-now {
+  text-align: center;
+  font-size: 34px;
+  font-weight: bold;
+  color: #1a1a1a;
+  letter-spacing: 4px;
+  padding: 6px 0;
+}
+
+/* ─── NTP sync indicator ──────────────────────────────── */
+.sync-status {
+  text-align: center;
+  font-size: 11px;
+  margin-top: 2px;
+  color: #aaa;
+}
+.sync-status.synced   { color: #2e7d32; }
+.sync-status.unsynced { color: #DD1D21; }
+
+/* ─── AP mode banner ──────────────────────────────────── */
+.ap-banner {
+  background: #fff3e0;
+  border: 1px solid #ffe0b2;
+  color: #e65100;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+/* ─── Hint ────────────────────────────────────────────── */
+.hint {
+  font-size: 12px;
+  color: #aaa;
+  margin-top: -8px;
+  margin-bottom: 16px;
+}
+.hint a { color: #DD1D21; text-decoration: none; }
+
+/* ─── Warning row ─────────────────────────────────────── */
+.warning-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.warning-row label { margin-bottom: 0; white-space: nowrap; }
+.warning-row input { margin-bottom: 0; width: 65px; }
+
+/* ─── Custom TZ ───────────────────────────────────────── */
+.custom-tz { display: none; }
+
+/* ─── Session table ───────────────────────────────────── */
+.session-count { font-size: 13px; color: #aaa; margin-bottom: 12px; }
+
+.session-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+.session-table th {
+  text-align: left;
+  color: #aaa;
+  font-weight: bold;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  padding: 6px 8px;
+  border-bottom: 2px solid #FBCE07;
+}
+.session-table td {
+  padding: 11px 8px;
+  border-bottom: 1px solid #f5f5f5;
+  vertical-align: middle;
+  color: #1a1a1a;
+}
+.session-table tr.active td { color: #DD1D21; font-weight: bold; }
+.session-table tr.past   td { color: #ccc; }
+
+/* ─── Badges ──────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+.badge.proto  { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+.badge.urban  { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
+.badge.active { background: #FBCE07; color: #1a1a1a; border: 1px solid #e6bc00; }
+.badge.past   { background: #f5f5f5; color: #ccc;    border: 1px solid #ebebeb; }
+
+/* ─── Row actions ─────────────────────────────────────── */
+.row-actions { display: flex; gap: 5px; }
+.btn-small {
+  padding: 5px 12px;
+  font-size: 13px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+  transition: opacity 0.15s;
+}
+.btn-small:hover { opacity: 0.75; }
+.btn-edit   { background: #f0f0f0; color: #555; }
+.btn-delete { background: #ffebee; color: #DD1D21; }
+
+/* ─── Session form: responsive horizontal layout ──────── */
+.form-field { display: block; }
+
+@media (min-width: 700px) {
+  /* Four fields side by side: Type(wider) | Start | Last start | End */
+  .form-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 14px;
+    align-items: end;
+    margin-bottom: 14px;
+  }
+  .form-row .form-field input,
+  .form-row .form-field select { margin-bottom: 0; }
+
+  /* Save + Cancel side by side */
+  .form-actions { display: flex; gap: 10px; }
+  .form-actions button          { width: auto; flex: 0 0 auto; margin: 0; padding: 13px 32px; }
+  .form-actions button.secondary { margin: 0; }
+}
+
+/* ─── P10 LED display preview ──────────────────────────────── */
+.p10-panel {
+  background: #0a0a0a;
+  border: 2px solid #1e1e1e;
+  border-radius: 6px;
+  padding: 8px 14px;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+.p10-line {
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  letter-spacing: 3px;
+  white-space: nowrap;
+}
+.p10-big {
+  font-size: 20px;
+  color: #FF8800;
+  text-shadow: 0 0 8px rgba(255,136,0,0.65);
+}
+.p10-small {
+  font-size: 11px;
+  letter-spacing: 5px;
+  color: #994d00;
+  text-shadow: 0 0 4px rgba(153,77,0,0.5);
+}
+@keyframes p10blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+/* WARNING: 750 ms on / 250 ms off — asymmetric; only the time row blinks, type stays solid */
+@keyframes p10blink-warning {
+  0%, 74.9% { opacity: 1; }
+  75%, 100%  { opacity: 0; }
+}
+.p10-blink-500     { animation: p10blink         0.5s linear infinite; }
+.p10-blink-1000    { animation: p10blink         1s   linear infinite; }
+.p10-blink-warning { animation: p10blink-warning 1s   linear infinite; }
+@keyframes p10scroll {
+  0%   { margin-left: 110%; }
+  100% { margin-left: -110%; }
+}
+.p10-scroll { animation: p10scroll 5s linear infinite; }
+
+/* ─── Override action row ─────────────────────────────── */
+.override-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.override-actions button { margin-top: 0; }
+.override-actions button:first-child { flex: 1; }
+.override-actions button.secondary   { flex: 0 0 auto; width: auto; padding: 13px 18px; }
+
+/* ─── Confirm overlay ─────────────────────────────────── */
+#confirmOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+#confirmOverlay.visible { display: flex; }
+.confirm-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 300px;
+  width: 90%;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+}
+.confirm-box p {
+  font-size: 16px;
+  color: #1a1a1a;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}

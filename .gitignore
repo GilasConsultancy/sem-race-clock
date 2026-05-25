@@ -1,0 +1,5 @@
+credentials.h
+*.bin
+.DS_Store
+build/
+.claude/
