@@ -50,7 +50,7 @@
 // ─────────────────────────────────────────────────────────────
 
 // --- Version ---
-#define FIRMWARE_VERSION "0.4.2"
+#define FIRMWARE_VERSION "0.4.3"
 #define GITHUB_OWNER     "gilasconsultancy"
 #define GITHUB_REPO      "sem-race-clock"
 
@@ -66,6 +66,13 @@ struct Session {
   int lastStartH, lastStartM;
   int endH, endM;
 };
+
+// --- WiFi network list ---
+struct WifiNetwork { String ssid, pass; };
+static const int WIFI_MAX = 10;
+WifiNetwork wifiNets[WIFI_MAX];
+int         wifiNetCount  = 0;
+int         wifiActiveIdx = -1;   // index of currently-connected network (-1 = none)
 
 // --- Clock states ---
 enum ClockState {
@@ -93,7 +100,7 @@ String       overrideText   = "";    // if non-empty, bypasses the clock state m
 bool         overrideDirty  = false; // set when overrideText changes; loop acts once then clears
 bool         updateRequested      = false; // set by /api/doupdate;    acted on in loop()
 bool         fsUpdateRequested    = false; // set by /api/doupdatefs;  acted on in loop()
-bool         wifiRestartRequested = false; // set by /api/wifi POST;   acted on in loop()
+bool         wifiRestartRequested = false; // set by /api/wifi/restart; acted on in loop()
 
 #ifdef HAS_RTC
 RTC_DS3231   rtc;
@@ -894,19 +901,69 @@ void performFilesystemUpdate() {
       break;
   }
 }
-// GET /api/wifi — current SSID (never the password) + connection status
+// ── WiFi network list helpers ────────────────────────────────────────────────
+
+void saveWifiNetworks() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < wifiNetCount; i++) {
+    JsonObject net = arr.add<JsonObject>();
+    net["ssid"] = wifiNets[i].ssid;
+    net["pass"] = wifiNets[i].pass;
+  }
+  String out; serializeJson(doc, out);
+  prefs.putString("wifi_networks", out);
+}
+
+void loadWifiNetworks() {
+  wifiNetCount  = 0;
+  wifiActiveIdx = -1;
+  String raw = prefs.getString("wifi_networks", "");
+  if (raw.length() > 0) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, raw)) {
+      JsonArray arr = doc.as<JsonArray>();
+      for (JsonObject net : arr) {
+        if (wifiNetCount >= WIFI_MAX) break;
+        wifiNets[wifiNetCount].ssid = net["ssid"] | "";
+        wifiNets[wifiNetCount].pass = net["pass"] | "";
+        wifiNetCount++;
+      }
+    }
+  } else {
+    // Migrate from v0.4.2 single-network keys
+    String oldSsid = prefs.getString("wifi_ssid", "");
+    String oldPass = prefs.getString("wifi_password", "");
+    if (!oldSsid.isEmpty()) {
+      wifiNets[0].ssid = oldSsid;
+      wifiNets[0].pass = oldPass;
+      wifiNetCount = 1;
+      saveWifiNetworks();  // commit to new format
+      Serial.println("Migrated single-network credentials to wifi_networks");
+    }
+    prefs.remove("wifi_ssid");
+    prefs.remove("wifi_password");
+  }
+}
+
+// GET /api/wifi — network list + connection status (passwords never sent)
 void handleGetWifi() {
   JsonDocument doc;
-  doc["ssid"]      = prefs.getString("wifi_ssid", "");
   doc["connected"] = (WiFi.status() == WL_CONNECTED);
   doc["ip"]        = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
   doc["apMode"]    = apMode;
+  JsonArray arr = doc["networks"].to<JsonArray>();
+  for (int i = 0; i < wifiNetCount; i++) {
+    JsonObject net = arr.add<JsonObject>();
+    net["ssid"]   = wifiNets[i].ssid;
+    net["active"] = (i == wifiActiveIdx);
+  }
   String out; serializeJson(doc, out);
   server.send(200, "application/json", out);
 }
 
-// POST /api/wifi — save credentials to NVS and restart
-void handleSetWifi() {
+// POST /api/wifi/add — { ssid, password }  (updates password if SSID already exists)
+void handleWifiAdd() {
   String body = server.arg("plain");
   JsonDocument doc;
   if (deserializeJson(doc, body)) {
@@ -920,8 +977,73 @@ void handleSetWifi() {
     server.send(400, "application/json", "{\"error\":\"SSID cannot be empty\"}");
     return;
   }
-  prefs.putString("wifi_ssid",     ssid);
-  prefs.putString("wifi_password", pass);
+  // Update existing entry if SSID already present
+  for (int i = 0; i < wifiNetCount; i++) {
+    if (wifiNets[i].ssid == ssid) {
+      wifiNets[i].pass = pass;
+      saveWifiNetworks();
+      server.send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+  }
+  if (wifiNetCount >= WIFI_MAX) {
+    server.send(400, "application/json", "{\"error\":\"Maximum 10 networks stored\"}");
+    return;
+  }
+  wifiNets[wifiNetCount].ssid = ssid;
+  wifiNets[wifiNetCount].pass = pass;
+  wifiNetCount++;
+  saveWifiNetworks();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST /api/wifi/remove — { index }
+void handleWifiRemove() {
+  String body = server.arg("plain");
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) {
+    server.send(400, "application/json", "{\"error\":\"Bad JSON\"}");
+    return;
+  }
+  int idx = doc["index"] | -1;
+  if (idx < 0 || idx >= wifiNetCount) {
+    server.send(400, "application/json", "{\"error\":\"Invalid index\"}");
+    return;
+  }
+  for (int i = idx; i < wifiNetCount - 1; i++) wifiNets[i] = wifiNets[i + 1];
+  wifiNetCount--;
+  if      (wifiActiveIdx == idx)  wifiActiveIdx = -1;
+  else if (wifiActiveIdx > idx)   wifiActiveIdx--;
+  saveWifiNetworks();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST /api/wifi/move — { index, direction: "up"|"down" }
+void handleWifiMove() {
+  String body = server.arg("plain");
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) {
+    server.send(400, "application/json", "{\"error\":\"Bad JSON\"}");
+    return;
+  }
+  int    idx    = doc["index"]     | -1;
+  String dir    = doc["direction"] | "";
+  int    newIdx = (dir == "up") ? idx - 1 : idx + 1;
+  if (idx < 0 || idx >= wifiNetCount || newIdx < 0 || newIdx >= wifiNetCount) {
+    server.send(400, "application/json", "{\"error\":\"Invalid move\"}");
+    return;
+  }
+  WifiNetwork tmp  = wifiNets[idx];
+  wifiNets[idx]    = wifiNets[newIdx];
+  wifiNets[newIdx] = tmp;
+  if      (wifiActiveIdx == idx)    wifiActiveIdx = newIdx;
+  else if (wifiActiveIdx == newIdx) wifiActiveIdx = idx;
+  saveWifiNetworks();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST /api/wifi/restart — reconnect using stored network list
+void handleWifiRestart() {
   server.send(200, "application/json", "{\"ok\":true}");
   wifiRestartRequested = true;
 }
@@ -984,8 +1106,7 @@ void setup() {
   dmd.clearScreen(true);
 #endif
 
-  String wifiSsid = prefs.getString("wifi_ssid", "");
-  String wifiPass = prefs.getString("wifi_password", "");
+  loadWifiNetworks();
 
   auto startAP = [&]() {
     apMode = true;
@@ -995,26 +1116,38 @@ void setup() {
     Serial.println("AP mode — 192.168.4.1");
   };
 
-  if (wifiSsid.isEmpty()) {
-    Serial.println("No WiFi credentials stored — starting AP mode");
+  if (wifiNetCount == 0) {
+    Serial.println("No WiFi networks stored — starting AP mode");
     startAP();
   } else {
     displayScroll("CONNECTING...");
     WiFi.setHostname(hostname);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
-
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-      delay(500); Serial.print(".");
-      attempts++;
+    bool connected = false;
+    for (int i = 0; i < wifiNetCount && !connected; i++) {
+      Serial.printf("Trying network %d: %s\n", i, wifiNets[i].ssid.c_str());
+      WiFi.begin(wifiNets[i].ssid.c_str(), wifiNets[i].pass.c_str());
+      int attempts = 0;
+      while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500); Serial.print(".");
+        attempts++;
+      }
+      if (WiFi.status() == WL_CONNECTED) {
+        connected     = true;
+        wifiActiveIdx = i;
+        Serial.printf("\nConnected to \"%s\" — %s\n",
+                      wifiNets[i].ssid.c_str(),
+                      WiFi.localIP().toString().c_str());
+      } else {
+        WiFi.disconnect(true);
+        delay(200);
+        Serial.printf("\nNetwork %d failed, trying next\n", i);
+      }
     }
-
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("\nWiFi failed — falling back to AP mode");
+    if (!connected) {
+      Serial.println("All WiFi networks failed — falling back to AP mode");
       startAP();
     } else {
-      Serial.println("\nConnected: " + WiFi.localIP().toString());
       if (MDNS.begin(hostname))
         Serial.println("mDNS: http://" + String(hostname) + ".local");
       displayMessage("SYNC...");
@@ -1066,7 +1199,10 @@ void setup() {
   server.on("/api/override",       HTTP_GET,  handleGetOverride);
   server.on("/api/override",       HTTP_POST, handlePostOverride);
   server.on("/api/wifi",           HTTP_GET,  handleGetWifi);
-  server.on("/api/wifi",           HTTP_POST, handleSetWifi);
+  server.on("/api/wifi/add",       HTTP_POST, handleWifiAdd);
+  server.on("/api/wifi/remove",    HTTP_POST, handleWifiRemove);
+  server.on("/api/wifi/move",      HTTP_POST, handleWifiMove);
+  server.on("/api/wifi/restart",   HTTP_POST, handleWifiRestart);
   server.on("/api/version",        HTTP_GET,  handleGetVersion);
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);

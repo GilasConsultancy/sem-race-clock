@@ -184,22 +184,27 @@
         <div class="card">
           <p class="section-title">WiFi</p>
           <div id="wifiStatus" class="wifi-status">Checking…</div>
+
+          <!-- Saved network list -->
+          <div id="wifiNetList" style="margin-top:12px"></div>
+
           <hr class="divider">
-          <label>Network name (SSID)</label>
-          <input type="text" id="wifiSsid" tabindex="13" placeholder="Network name"
+
+          <!-- Add network form -->
+          <label>Add network</label>
+          <input type="text" id="wifiSsid" tabindex="13" placeholder="Network name (SSID)"
                  autocomplete="off" spellcheck="false">
-          <label>Password</label>
           <div class="password-row">
             <input type="password" id="wifiPass" tabindex="14"
-                   placeholder="Leave blank to keep existing"
+                   placeholder="Password (leave blank if open)"
                    autocomplete="new-password">
             <button class="secondary btn-reveal" tabindex="15" type="button"
                     onclick="togglePassVisibility()">Show</button>
           </div>
-          <p class="hint">The device will restart and join the new network.<br>
-            Reconnect your browser to that network, then open
-            <strong>raceclock.local</strong>.</p>
-          <button tabindex="16" onclick="saveWifi()">Save &amp; Restart</button>
+          <p class="hint">Networks are tried top-to-bottom on startup. Up to 10 saved.</p>
+          <button tabindex="16" onclick="addWifi()">Add network</button>
+          <button class="secondary" tabindex="17" onclick="wifiRestart()"
+                  style="margin-top:6px">Restart to connect</button>
           <div id="wifiSaveStatus" class="status" style="display:none"></div>
         </div>
 
@@ -207,7 +212,7 @@
           <div class="device-toggle"
                id="deviceToggle"
                role="button"
-               tabindex="17"
+               tabindex="18"
                aria-expanded="false"
                onclick="toggleDevice()"
                onkeydown="if(event.key==='Enter'||event.key===' '){toggleDevice();event.preventDefault();}">
@@ -221,9 +226,9 @@
           <div id="deviceBody" class="device-body" style="display:none">
             <p class="device-subsection">Web Files</p>
             <label>Replace a file on the device</label>
-            <input type="file" id="webFileInput" tabindex="18" accept=".html,.css">
+            <input type="file" id="webFileInput" tabindex="19" accept=".html,.css">
             <p class="hint">Accepted: index.html, style.css</p>
-            <button tabindex="19" onclick="uploadWebFile()">Upload</button>
+            <button tabindex="20" onclick="uploadWebFile()">Upload</button>
             <div id="uploadStatus" class="status" style="display:none"></div>
 
             <hr class="divider">
@@ -232,14 +237,14 @@
             <p class="time-label">Installed version</p>
             <div class="time-now" id="fwVersion" style="font-size:22px;letter-spacing:3px">—</div>
             <hr class="divider">
-            <button tabindex="20" onclick="checkForUpdate()">Check for updates</button>
+            <button tabindex="21" onclick="checkForUpdate()">Check for updates</button>
             <div id="updateStatus" class="status" style="display:none"></div>
             <div id="updateActions" style="display:none;margin-top:6px">
-              <button class="danger" tabindex="21" onclick="installUpdate()">
+              <button class="danger" tabindex="22" onclick="installUpdate()">
                 Update firmware
               </button>
             </div>
-            <button class="secondary" tabindex="22" onclick="installFSUpdate()"
+            <button class="secondary" tabindex="23" onclick="installFSUpdate()"
                     style="margin-top:8px">Update web files</button>
           </div>
         </div>
@@ -795,17 +800,44 @@ async function loadWifi() {
     const d = await r.json();
     const el = document.getElementById('wifiStatus');
     if (d.connected) {
-      el.textContent = `Connected to "${d.ssid}" — ${d.ip}`;
+      const activeNet = (d.networks || []).find(n => n.active);
+      el.textContent = `Connected to "${activeNet ? activeNet.ssid : '?'}" — ${d.ip}`;
       el.className   = 'wifi-status connected';
-      document.getElementById('wifiSsid').placeholder = d.ssid;
     } else if (d.apMode) {
       el.textContent = 'AP mode — no network configured yet';
       el.className   = 'wifi-status apmode';
     } else {
-      el.textContent = `Not connected (last network: "${d.ssid || '—'}")`;
+      el.textContent = 'Not connected';
       el.className   = 'wifi-status';
     }
+    renderWifiNetList(d.networks || []);
   } catch(e) {}
+}
+
+function renderWifiNetList(networks) {
+  const wrap = document.getElementById('wifiNetList');
+  if (!networks.length) {
+    wrap.innerHTML = '<p class="hint" style="margin:0">No networks saved yet.</p>';
+    return;
+  }
+  let rows = networks.map((n, i) => `
+    <tr class="${n.active ? 'wifi-net-active' : ''}">
+      <td class="wifi-net-indicator">${n.active ? '●' : '○'}</td>
+      <td class="wifi-net-ssid">${escHtml(n.ssid)}</td>
+      <td class="wifi-net-actions">
+        <button class="btn-small btn-edit" title="Move up"
+                onclick="wifiMove(${i},'up')" ${i===0?'disabled':''}>↑</button>
+        <button class="btn-small btn-edit" title="Move down"
+                onclick="wifiMove(${i},'down')" ${i===networks.length-1?'disabled':''}>↓</button>
+        <button class="btn-small btn-delete" title="Remove"
+                onclick="wifiRemove(${i})">✕</button>
+      </td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="wifi-net-table"><tbody>${rows}</tbody></table>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function togglePassVisibility() {
@@ -816,26 +848,59 @@ function togglePassVisibility() {
   btn.textContent = show ? 'Hide'  : 'Show';
 }
 
-async function saveWifi() {
+async function addWifi() {
   const ssid = document.getElementById('wifiSsid').value.trim();
   const pass = document.getElementById('wifiPass').value;
   if (!ssid) { showStatus('wifiSaveStatus', 'Enter a network name.', true); return; }
-  const ok = await confirm(
-    `Switch to "${ssid}"? The device will restart.\n` +
-    `Reconnect your device to that network, then open raceclock.local.`
-  );
-  if (!ok) return;
-  const statusEl = document.getElementById('wifiSaveStatus');
-  statusEl.textContent   = `Connecting to "${ssid}"… reconnect your device to that network, then open raceclock.local`;
-  statusEl.className     = 'status';
-  statusEl.style.display = 'block';
   try {
-    await fetch('/api/wifi', {
+    const r = await fetch('/api/wifi/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ssid, password: pass })
     });
-  } catch(e) { /* device likely restarted before response — that's fine */ }
+    const d = await r.json();
+    if (d.ok) {
+      showStatus('wifiSaveStatus', `"${ssid}" saved.`, false);
+      document.getElementById('wifiSsid').value = '';
+      document.getElementById('wifiPass').value = '';
+      loadWifi();
+    } else {
+      showStatus('wifiSaveStatus', d.error || 'Error saving network.', true);
+    }
+  } catch(e) { showStatus('wifiSaveStatus', 'Error saving network.', true); }
+}
+
+async function wifiRemove(idx) {
+  if (!confirm('Remove this network?')) return;
+  try {
+    await fetch('/api/wifi/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: idx })
+    });
+    loadWifi();
+  } catch(e) { showStatus('wifiSaveStatus', 'Error removing network.', true); }
+}
+
+async function wifiMove(idx, direction) {
+  try {
+    await fetch('/api/wifi/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: idx, direction })
+    });
+    loadWifi();
+  } catch(e) {}
+}
+
+async function wifiRestart() {
+  const statusEl = document.getElementById('wifiSaveStatus');
+  statusEl.textContent   = 'Restarting… reconnect your device to the target network, then open raceclock.local.';
+  statusEl.className     = 'status';
+  statusEl.style.display = 'block';
+  try {
+    await fetch('/api/wifi/restart', { method: 'POST' });
+  } catch(e) { /* device likely rebooted before response — that's fine */ }
 }
 
 // ── Firmware update ────────────────────────────────────
