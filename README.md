@@ -241,18 +241,18 @@ Set them once under **Settings → Secrets and variables → Actions → New rep
 
 ### Release steps
 
-1. Bump `FIRMWARE_VERSION` in `SEM_Time2LastStart.ino` (e.g. `"0.4.1"`).
-2. Bump `version` in `version.json` to match exactly.
-3. Commit and push both files to `main`.
-4. Tag the commit and push the tag:
-   ```
-   git tag v0.4.1
-   git push origin v0.4.1
-   ```
-5. GitHub Actions compiles the firmware, attaches `firmware.bin` to a new Release, and done.
+The git tag is the **only** thing you need to change. The workflow patches
+`version.json` and `FIRMWARE_VERSION` in the sketch automatically, then commits
+those changes back to `main` so the device OTA check can find the new version.
 
-The workflow refuses to proceed if the tag, `version.json`, and `FIRMWARE_VERSION` in the `.ino`
-don't all agree — so a version mismatch is caught before anything is published.
+```bash
+git tag v0.4.2
+git push origin v0.4.2
+```
+
+That's it. GitHub Actions compiles the firmware, packages the web files into a
+LittleFS image, commits the version bump to `main`, and publishes a Release with
+`firmware.bin` and `littlefs.bin` attached.
 
 ---
 

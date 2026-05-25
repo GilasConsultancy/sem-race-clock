@@ -1,6 +1,12 @@
 name: Build and Release Firmware
 
-# Triggered by pushing a version tag, e.g.:  git tag v0.4.0 && git push origin v0.4.0
+# The git tag is the single source of truth for the version.
+# Pushing a tag patches version.json and FIRMWARE_VERSION automatically,
+# compiles both binaries, commits the version bump to main, and publishes
+# a GitHub Release — no manual file edits needed.
+#
+# Usage:
+#   git tag v0.4.2 && git push origin v0.4.2
 on:
   push:
     tags:
@@ -10,24 +16,30 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # required to create GitHub Releases
+      contents: write   # required to create releases and push back to main
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Guard: all three version strings must agree ──────────────────────
-      - name: Verify versions match tag
+      # ── Derive version from tag; patch source files ───────────────────────
+      - name: Patch version files from tag
+        id: version
         run: |
           TAG_VER="${GITHUB_REF_NAME#v}"
-          JSON_VER=$(python3 -c "import json; print(json.load(open('version.json'))['version'])")
-          INO_VER=$(grep -oP 'FIRMWARE_VERSION\s+"\K[^"]+' SEM_Time2LastStart.ino)
-          echo "Tag=$TAG_VER  version.json=$JSON_VER  .ino=$INO_VER"
-          if [ "$TAG_VER" != "$JSON_VER" ] || [ "$TAG_VER" != "$INO_VER" ]; then
-            echo "::error::Version mismatch — bump FIRMWARE_VERSION in SEM_Time2LastStart.ino"
-            echo "::error::and version in version.json to $TAG_VER before tagging."
-            exit 1
-          fi
+          echo "version=$TAG_VER" >> "$GITHUB_OUTPUT"
+
+          # Patch version.json
+          printf '{\n  "version": "%s"\n}\n' "$TAG_VER" > version.json
+
+          # Patch #define FIRMWARE_VERSION in the sketch
+          sed -i \
+            "s/#define FIRMWARE_VERSION \"[^\"]*\"/#define FIRMWARE_VERSION \"$TAG_VER\"/" \
+            SEM_Time2LastStart.ino
+
+          echo "Patched to v$TAG_VER"
+          grep "FIRMWARE_VERSION" SEM_Time2LastStart.ino
+          cat version.json
 
       # ── Guard: WiFi credentials must be set as repository secrets ────────
       - name: Create credentials.h from repository secrets
@@ -66,8 +78,6 @@ jobs:
 
       # ── Compile ───────────────────────────────────────────────────────────
       # arduino-cli requires the sketch directory name to match the .ino file.
-      # The repo root is named sem-race-clock, so we stage the sketch into a
-      # correctly-named subdirectory before compiling.
       - name: Stage sketch directory
         run: |
           mkdir SEM_Time2LastStart
@@ -86,12 +96,22 @@ jobs:
 
       - name: Build LittleFS image
         run: |
-          # The ESP32 core ships mklittlefs; find whichever version was installed.
           MKLITTLEFS=$(find ~/.arduino15/packages/esp32/tools/mklittlefs \
                             -name mklittlefs -type f | sort -V | tail -1)
           echo "Using: $MKLITTLEFS"
           # Partition size for PartitionScheme=default on 4 MB flash: 0x170000 bytes
           "$MKLITTLEFS" -c data -s 1507328 -b 4096 -p 256 littlefs.bin
+
+      # ── Commit version bump back to main ──────────────────────────────────
+      # This keeps version.json on main current so the device OTA check works.
+      - name: Commit version bump to main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json SEM_Time2LastStart.ino
+          git diff --staged --quiet || \
+            git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git push origin HEAD:refs/heads/main
 
       # ── Release ───────────────────────────────────────────────────────────
       - name: Create GitHub Release
