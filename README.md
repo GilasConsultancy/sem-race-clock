@@ -225,14 +225,34 @@ All endpoints return JSON.
 
 ## Releasing a new firmware version
 
-1. Bump `FIRMWARE_VERSION` in `SEM_Time2LastStart.ino` (e.g. `"1.0.1"`).
-2. Bump `version` in `version.json` to match.
-3. Commit and push both files.
-4. In Arduino IDE: **Sketch → Export Compiled Binary** — this produces `build/…/SEM_Time2LastStart.ino.bin`.
-5. On GitHub, create a new Release:
-   - Tag: `v1.0.1` (must match the version string)
-   - Attach `firmware.bin` (rename the exported `.bin` to exactly `firmware.bin`)
-6. Done — devices will discover the update via **Check for updates** in the web UI.
+Releases are fully automated by a GitHub Actions workflow (`.github/workflows/release.yml`).
+Pushing a version tag compiles the firmware in CI, names the binary `firmware.bin`, and
+publishes a GitHub Release — no manual binary export or renaming required.
+
+### One-time setup — repository secrets
+
+The workflow creates `credentials.h` at build time from two repository secrets.
+Set them once under **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+|---|---|
+| `WIFI_SSID` | Your WiFi network name |
+| `WIFI_PASSWORD` | Your WiFi password |
+
+### Release steps
+
+1. Bump `FIRMWARE_VERSION` in `SEM_Time2LastStart.ino` (e.g. `"0.4.1"`).
+2. Bump `version` in `version.json` to match exactly.
+3. Commit and push both files to `main`.
+4. Tag the commit and push the tag:
+   ```
+   git tag v0.4.1
+   git push origin v0.4.1
+   ```
+5. GitHub Actions compiles the firmware, attaches `firmware.bin` to a new Release, and done.
+
+The workflow refuses to proceed if the tag, `version.json`, and `FIRMWARE_VERSION` in the `.ino`
+don't all agree — so a version mismatch is caught before anything is published.
 
 ---
 

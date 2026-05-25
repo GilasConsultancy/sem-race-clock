@@ -1,0 +1,101 @@
+name: Build and Release Firmware
+
+# Triggered by pushing a version tag, e.g.:  git tag v0.4.0 && git push origin v0.4.0
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create GitHub Releases
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Guard: all three version strings must agree ──────────────────────
+      - name: Verify versions match tag
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          JSON_VER=$(python3 -c "import json; print(json.load(open('version.json'))['version'])")
+          INO_VER=$(grep -oP 'FIRMWARE_VERSION\s+"\K[^"]+' SEM_Time2LastStart.ino)
+          echo "Tag=$TAG_VER  version.json=$JSON_VER  .ino=$INO_VER"
+          if [ "$TAG_VER" != "$JSON_VER" ] || [ "$TAG_VER" != "$INO_VER" ]; then
+            echo "::error::Version mismatch — bump FIRMWARE_VERSION in SEM_Time2LastStart.ino"
+            echo "::error::and version in version.json to $TAG_VER before tagging."
+            exit 1
+          fi
+
+      # ── Guard: WiFi credentials must be set as repository secrets ────────
+      - name: Create credentials.h from repository secrets
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+        run: |
+          if [ -z "$WIFI_SSID" ] || [ -z "$WIFI_PASSWORD" ]; then
+            echo "::error::Set WIFI_SSID and WIFI_PASSWORD as repository secrets."
+            echo "::error::Go to: Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          printf '#define WIFI_SSID     "%s"\n#define WIFI_PASSWORD "%s"\n' \
+            "$WIFI_SSID" "$WIFI_PASSWORD" > credentials.h
+
+      # ── Toolchain ─────────────────────────────────────────────────────────
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Add ESP32 board index
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+
+      - name: Cache Arduino data
+        uses: actions/cache@v4
+        with:
+          path: ~/.arduino15
+          key: arduino-esp32-${{ runner.os }}-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: arduino-esp32-${{ runner.os }}-
+
+      - name: Install ESP32 core
+        run: arduino-cli core install esp32:esp32
+
+      - name: Install libraries
+        run: |
+          arduino-cli lib install "ArduinoJson"
+          arduino-cli lib install "ezTime"
+          arduino-cli lib install "ElegantOTA"
+
+      # ── Compile ───────────────────────────────────────────────────────────
+      - name: Compile firmware
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:dfrobot_firebeetle2_esp32e:PartitionScheme=default \
+            --output-dir build \
+            SEM_Time2LastStart.ino
+
+      # ── Package ───────────────────────────────────────────────────────────
+      - name: Rename binary to firmware.bin
+        run: cp build/SEM_Time2LastStart.ino.bin firmware.bin
+
+      # ── Release ───────────────────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ github.ref_name }}"
+          body: |
+            ## SEM Race Clock ${{ github.ref_name }}
+
+            **Install via the web UI** — open the Firmware card at `http://raceclock.local`
+            and click **Check for updates → Install update**.
+
+            **Manual install** — flash `firmware.bin` via
+            [ElegantOTA](http://raceclock.local/update) (username: `admin`, password: `raceclock`).
+          files: firmware.bin
+          fail_on_unmatched_files: true
