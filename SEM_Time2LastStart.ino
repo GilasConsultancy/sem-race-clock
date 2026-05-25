@@ -1126,6 +1126,7 @@ void setup() {
     bool connected = false;
     for (int i = 0; i < wifiNetCount && !connected; i++) {
       Serial.printf("Trying network %d: %s\n", i, wifiNets[i].ssid.c_str());
+      WiFi.setHostname("SEMRaceClock");
       WiFi.begin(wifiNets[i].ssid.c_str(), wifiNets[i].pass.c_str());
       int attempts = 0;
       while (WiFi.status() != WL_CONNECTED && attempts < 20) {
