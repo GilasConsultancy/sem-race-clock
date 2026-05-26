@@ -151,68 +151,97 @@
         </div>
 
         <div class="card">
-          <p class="section-title">Settings</p>
-
-          <label>Event location</label>
-          <select id="tzPreset" tabindex="9" onchange="onTZChange(this)">
-            <option value="Europe/Warsaw">Kamień Śląski, Poland (CET)</option>
-            <option value="Asia/Qatar">Doha, Qatar</option>
-            <option value="America/Indiana/Indianapolis">Indianapolis, United States</option>
-            <option value="America/Sao_Paulo">Rio de Janeiro, Brazil</option>
-            <option value="custom">Other (enter below)</option>
-          </select>
-          <div class="custom-tz" id="customTZ">
-            <label>IANA timezone name</label>
-            <input type="text" id="tzCustom" tabindex="10" placeholder="e.g. Asia/Dubai">
-            <p class="hint">
-              Full list:
-              <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
-                 target="_blank">wikipedia.org/wiki/List_of_tz_database_time_zones</a>
-            </p>
+          <div class="device-toggle"
+               id="settingsToggle"
+               role="button"
+               tabindex="9"
+               aria-expanded="false"
+               onclick="toggleSettings()"
+               onkeydown="if(event.key==='Enter'||event.key===' '){toggleSettings();event.preventDefault();}">
+            <span class="device-toggle-title">Settings</span>
+            <span class="device-toggle-right">
+              <span id="settingsBadge" class="device-version-badge"></span>
+              <span id="settingsChevron" class="device-chevron">▾</span>
+            </span>
           </div>
 
-          <div class="warning-row">
-            <label>Warning threshold</label>
-            <input type="number" id="warnMinutes" tabindex="11" min="1" max="30" value="5">
-            <span style="font-size:12px;color:#888">minutes</span>
-          </div>
+          <div id="settingsBody" class="device-body" style="display:none">
+            <label>Event location</label>
+            <select id="tzPreset" tabindex="10" onchange="onTZChange(this)">
+              <option value="Europe/Warsaw">Kamień Śląski, Poland (CET)</option>
+              <option value="Asia/Qatar">Doha, Qatar</option>
+              <option value="America/Indiana/Indianapolis">Indianapolis, United States</option>
+              <option value="America/Sao_Paulo">Rio de Janeiro, Brazil</option>
+              <option value="custom">Other (enter below)</option>
+            </select>
+            <div class="custom-tz" id="customTZ">
+              <label>IANA timezone name</label>
+              <input type="text" id="tzCustom" tabindex="11" placeholder="e.g. Asia/Dubai">
+              <p class="hint">
+                Full list:
+                <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+                   target="_blank">wikipedia.org/wiki/List_of_tz_database_time_zones</a>
+              </p>
+            </div>
 
-          <button tabindex="12" onclick="saveSettings()">Save settings</button>
-          <div id="settingsStatus" style="display:none" class="status"></div>
+            <div class="warning-row">
+              <label>Warning threshold</label>
+              <input type="number" id="warnMinutes" tabindex="12" min="1" max="30" value="5">
+              <span style="font-size:12px;color:#888">minutes</span>
+            </div>
+
+            <button tabindex="13" onclick="saveSettings()">Save settings</button>
+            <div id="settingsStatus" style="display:none" class="status"></div>
+          </div>
         </div>
 
         <div class="card">
-          <p class="section-title">WiFi</p>
-          <div id="wifiStatus" class="wifi-status">Checking…</div>
-
-          <!-- Saved network list -->
-          <div id="wifiNetList" style="margin-top:12px"></div>
-
-          <hr class="divider">
-
-          <!-- Add network form -->
-          <label>Add network</label>
-          <input type="text" id="wifiSsid" tabindex="13" placeholder="Network name (SSID)"
-                 autocomplete="off" spellcheck="false">
-          <div class="password-row">
-            <input type="password" id="wifiPass" tabindex="14"
-                   placeholder="Password (leave blank if open)"
-                   autocomplete="new-password">
-            <button class="secondary btn-reveal" tabindex="15" type="button"
-                    onclick="togglePassVisibility()">Show</button>
+          <div class="device-toggle"
+               id="wifiToggle"
+               role="button"
+               tabindex="14"
+               aria-expanded="false"
+               onclick="toggleWifi()"
+               onkeydown="if(event.key==='Enter'||event.key===' '){toggleWifi();event.preventDefault();}">
+            <span class="device-toggle-title">WiFi</span>
+            <span class="device-toggle-right">
+              <span id="wifiBadge" class="device-version-badge"></span>
+              <span id="wifiChevron" class="device-chevron">▾</span>
+            </span>
           </div>
-          <p class="hint">Networks are tried top-to-bottom on startup. Up to 10 saved.</p>
-          <button tabindex="16" onclick="addWifi()">Add network</button>
-          <button class="secondary" tabindex="17" onclick="wifiRestart()"
-                  style="margin-top:6px">Restart to connect</button>
-          <div id="wifiSaveStatus" class="status" style="display:none"></div>
+
+          <div id="wifiBody" class="device-body" style="display:none">
+            <div id="wifiStatus" class="wifi-status">Checking…</div>
+
+            <!-- Saved network list -->
+            <div id="wifiNetList" style="margin-top:12px"></div>
+
+            <hr class="divider">
+
+            <!-- Add network form -->
+            <label>Add network</label>
+            <input type="text" id="wifiSsid" tabindex="15" placeholder="Network name (SSID)"
+                   autocomplete="off" spellcheck="false">
+            <div class="password-row">
+              <input type="password" id="wifiPass" tabindex="16"
+                     placeholder="Password (leave blank if open)"
+                     autocomplete="new-password">
+              <button class="secondary btn-reveal" tabindex="17" type="button"
+                      onclick="togglePassVisibility()">Show</button>
+            </div>
+            <p class="hint">Networks are tried top-to-bottom on startup. Up to 10 saved.</p>
+            <button tabindex="18" onclick="addWifi()">Add network</button>
+            <button class="secondary" tabindex="19" onclick="wifiRestart()"
+                    style="margin-top:6px">Restart to connect</button>
+            <div id="wifiSaveStatus" class="status" style="display:none"></div>
+          </div>
         </div>
 
         <div class="card">
           <div class="device-toggle"
                id="deviceToggle"
                role="button"
-               tabindex="18"
+               tabindex="20"
                aria-expanded="false"
                onclick="toggleDevice()"
                onkeydown="if(event.key==='Enter'||event.key===' '){toggleDevice();event.preventDefault();}">
@@ -226,9 +255,9 @@
           <div id="deviceBody" class="device-body" style="display:none">
             <p class="device-subsection">Web Files</p>
             <label>Replace a file on the device</label>
-            <input type="file" id="webFileInput" tabindex="19" accept=".html,.css">
+            <input type="file" id="webFileInput" tabindex="21" accept=".html,.css">
             <p class="hint">Accepted: index.html, style.css</p>
-            <button tabindex="20" onclick="uploadWebFile()">Upload</button>
+            <button tabindex="22" onclick="uploadWebFile()">Upload</button>
             <div id="uploadStatus" class="status" style="display:none"></div>
 
             <hr class="divider">
@@ -237,14 +266,14 @@
             <p class="time-label">Installed version</p>
             <div class="time-now" id="fwVersion" style="font-size:22px;letter-spacing:3px">—</div>
             <hr class="divider">
-            <button tabindex="21" onclick="checkForUpdate()">Check for updates</button>
+            <button tabindex="23" onclick="checkForUpdate()">Check for updates</button>
             <div id="updateStatus" class="status" style="display:none"></div>
             <div id="updateActions" style="display:none;margin-top:6px">
-              <button class="danger" tabindex="22" onclick="installUpdate()">
+              <button class="danger" tabindex="24" onclick="installUpdate()">
                 Update firmware
               </button>
             </div>
-            <button class="secondary" tabindex="23" onclick="installFSUpdate()"
+            <button class="secondary" tabindex="25" onclick="installFSUpdate()"
                     style="margin-top:8px">Update web files</button>
           </div>
         </div>
@@ -397,6 +426,12 @@ async function loadSettings() {
     if (settings.apMode) {
       document.getElementById('apBanner').style.display = 'block';
     }
+    // Update settings badge with the selected location name (city part only)
+    const badge = document.getElementById('settingsBadge');
+    if (badge) {
+      const chosen = sel.options[sel.selectedIndex].text;
+      badge.textContent = chosen.split(',')[0];
+    }
   } catch(e) { console.error('Settings load failed', e); }
 }
 
@@ -417,6 +452,10 @@ async function saveSettings() {
     settings = { ...settings, tz, warnMinutes };
     showStatus('settingsStatus', 'Settings saved.', false);
     syncDeviceClock();
+    // Refresh badge
+    const sel = document.getElementById('tzPreset');
+    const badge = document.getElementById('settingsBadge');
+    if (badge) badge.textContent = sel.options[sel.selectedIndex].text.split(',')[0];
   } else {
     showStatus('settingsStatus', result.error || 'Failed.', true);
   }
@@ -798,17 +837,22 @@ async function loadWifi() {
   try {
     const r = await fetch('/api/wifi');
     const d = await r.json();
-    const el = document.getElementById('wifiStatus');
+    const el    = document.getElementById('wifiStatus');
+    const badge = document.getElementById('wifiBadge');
     if (d.connected) {
       const activeNet = (d.networks || []).find(n => n.active);
       el.textContent = `Connected to "${activeNet ? activeNet.ssid : '?'}" — ${d.ip}`;
       el.className   = 'wifi-status connected';
+      if (badge) { badge.textContent = activeNet ? activeNet.ssid : 'Connected';
+                   badge.style.color = '#2e7d32'; }
     } else if (d.apMode) {
       el.textContent = 'AP mode — no network configured yet';
       el.className   = 'wifi-status apmode';
+      if (badge) { badge.textContent = 'AP mode'; badge.style.color = '#e65100'; }
     } else {
       el.textContent = 'Not connected';
       el.className   = 'wifi-status';
+      if (badge) { badge.textContent = 'Not connected'; badge.style.color = ''; }
     }
     renderWifiNetList(d.networks || []);
   } catch(e) {}
@@ -903,13 +947,32 @@ async function wifiRestart() {
   } catch(e) { /* device likely rebooted before response — that's fine */ }
 }
 
+// ── Collapsible card toggles ───────────────────────────
+function makeToggle(bodyId, chevronId, toggleId, openFlag) {
+  const body    = document.getElementById(bodyId);
+  const chevron = document.getElementById(chevronId);
+  const toggle  = document.getElementById(toggleId);
+  const open    = !openFlag;
+  body.style.display = open ? 'block' : 'none';
+  chevron.className  = 'device-chevron' + (open ? ' open' : '');
+  toggle.setAttribute('aria-expanded', String(open));
+  return open;
+}
+
+let settingsOpen = false;
+function toggleSettings() {
+  settingsOpen = makeToggle('settingsBody', 'settingsChevron', 'settingsToggle', settingsOpen);
+}
+
+let wifiOpen = false;
+function toggleWifi() {
+  wifiOpen = makeToggle('wifiBody', 'wifiChevron', 'wifiToggle', wifiOpen);
+}
+
 // ── Firmware update ────────────────────────────────────
 let deviceOpen = false;
 function toggleDevice() {
-  deviceOpen = !deviceOpen;
-  document.getElementById('deviceBody').style.display = deviceOpen ? 'block' : 'none';
-  document.getElementById('deviceChevron').className  = 'device-chevron' + (deviceOpen ? ' open' : '');
-  document.getElementById('deviceToggle').setAttribute('aria-expanded', String(deviceOpen));
+  deviceOpen = makeToggle('deviceBody', 'deviceChevron', 'deviceToggle', deviceOpen);
 }
 
 async function loadVersion() {
