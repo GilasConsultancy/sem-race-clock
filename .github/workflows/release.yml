@@ -64,10 +64,13 @@ jobs:
 
       # ── Compile ───────────────────────────────────────────────────────────
       # arduino-cli requires the sketch directory name to match the .ino file.
+      # partitions.csv in the sketch folder overrides PartitionScheme=default,
+      # giving 1536 KB per OTA slot (vs 1280 KB) with 960 KB for LittleFS.
       - name: Stage sketch directory
         run: |
           mkdir SEM_Time2LastStart
           cp SEM_Time2LastStart.ino SEM_Time2LastStart/
+          cp partitions.csv SEM_Time2LastStart/
 
       - name: Compile firmware
         run: |
@@ -85,8 +88,8 @@ jobs:
           MKLITTLEFS=$(find ~/.arduino15/packages/esp32/tools/mklittlefs \
                             -name mklittlefs -type f | sort -V | tail -1)
           echo "Using: $MKLITTLEFS"
-          # Partition size for PartitionScheme=default on 4 MB flash: 0x170000 bytes
-          "$MKLITTLEFS" -c data -s 1507328 -b 4096 -p 256 littlefs.bin
+          # LittleFS partition size from partitions.csv: 0xF0000 = 983040 bytes
+          "$MKLITTLEFS" -c data -s 983040 -b 4096 -p 256 littlefs.bin
 
       # ── Commit version bump back to main ──────────────────────────────────
       # This keeps version.json on main current so the device OTA check works.

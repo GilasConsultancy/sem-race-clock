@@ -1,0 +1,20 @@
+# SEM Race Clock — custom partition table for 4 MB flash
+#
+# Default scheme gives 1280 KB (0x140000) per OTA slot, which is too tight once
+# the P10 and RTC libraries are enabled.  This table gives 1536 KB (0x180000)
+# per slot (+20 % headroom) and keeps 960 KB for LittleFS web files.
+#
+# Layout (4 MB = 0x400000):
+#   NVS      20 KB   0x009000
+#   OTA data  8 KB   0x00E000
+#   app0   1536 KB   0x010000   (OTA slot 0)
+#   app1   1536 KB   0x190000   (OTA slot 1)
+#   LittleFS 960 KB  0x310000
+#   Total:           0x400000  ✓
+#
+# Name,    Type, SubType,  Offset,   Size,     Flags
+nvs,       data, nvs,      0x9000,   0x5000,
+otadata,   data, ota,      0xe000,   0x2000,
+app0,      app,  ota_0,    0x10000,  0x180000,
+app1,      app,  ota_1,    0x190000, 0x180000,
+littlefs,  data, spiffs,   0x310000, 0xF0000,

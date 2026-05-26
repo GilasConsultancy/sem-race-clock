@@ -42,6 +42,7 @@ Install these through the Arduino IDE Library Manager or board manager:
 ```
 SEM_Time2LastStart/
 ├── SEM_Time2LastStart.ino   # Firmware — all device logic
+├── partitions.csv           # Custom partition table (1536 KB OTA slots, 960 KB LittleFS)
 ├── version.json             # Current firmware version (managed by CI)
 └── data/                    # LittleFS filesystem image
     ├── index.html           # Web management UI (self-contained)
@@ -55,7 +56,9 @@ SEM_Time2LastStart/
 
 ### 1. Board setup
 
-In Arduino IDE, select **DFRobot FireBeetle 2 ESP32-E** (or generic ESP32 Dev Module). Set partition scheme to one with a LittleFS partition — `Default 4MB with spiffs` works; rename the partition type to `LittleFS` in `Tools → Partition Scheme`.
+In Arduino IDE, select **DFRobot FireBeetle 2 ESP32-E** (or generic ESP32 Dev Module).
+
+The project includes `partitions.csv`, which overrides the default partition table and gives each OTA slot 1,536 KB (vs 1,280 KB default) while keeping 960 KB for LittleFS. Arduino IDE picks this file up automatically — no manual `Tools → Partition Scheme` selection is required.
 
 ### 2. WiFi credentials
 
