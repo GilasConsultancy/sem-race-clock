@@ -306,6 +306,8 @@ button.danger:hover { background: #bb1418; }
   cursor: pointer;
   font-weight: bold;
   transition: opacity 0.15s;
+}
+.wifi-net-actions .btn-small {
   width: 36px;
 }
 .btn-small:hover { opacity: 0.75; }
