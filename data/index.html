@@ -215,21 +215,33 @@
           </div>
 
           <div id="wifiBody" class="device-body" style="display:none">
+
+            <!-- Connection status -->
+            <p class="device-subsection">CONNECTION</p>
             <div id="wifiStatus" class="wifi-status">Checking…</div>
 
+            <hr class="divider">
+
             <!-- Peer race clocks on the local network -->
-            <div id="wifiPeers" style="display:none;margin-top:14px">
-              <p class="device-subsection">OTHER RACE CLOCKS ON NETWORK</p>
-              <div id="wifiPeerList"></div>
+            <div class="wifi-section-header">
+              <p class="device-subsection" style="margin-bottom:0">PEERS</p>
+              <button class="btn-small btn-edit" style="width:auto;padding:3px 10px;font-size:11px;margin:0"
+                      onclick="loadPeers()" title="Scan for other race clocks">↻ Refresh</button>
+            </div>
+            <div id="wifiPeers">
+              <div id="wifiPeerList" class="wifi-peer-empty">Scanning…</div>
             </div>
 
-            <!-- Saved network list -->
-            <div id="wifiNetList" style="margin-top:12px"></div>
+            <hr class="divider">
+
+            <!-- Saved networks -->
+            <p class="device-subsection">NETWORKS</p>
+            <div id="wifiNetList"></div>
 
             <hr class="divider">
 
             <!-- Add network form -->
-            <label>Add network</label>
+            <p class="device-subsection">ADD NETWORK</p>
             <input type="text" id="wifiSsid" tabindex="15" placeholder="Network name (SSID)"
                    autocomplete="off" spellcheck="false">
             <div class="password-row">
@@ -1177,12 +1189,11 @@ function renderPeerList(peers) {
   if (!section || !list) return;
 
   if (!peers || peers.length === 0) {
-    section.style.display = 'none';
     if (badge) badge.style.display = 'none';
+    list.innerHTML = '<div class="wifi-peer-empty">No other clocks found on network</div>';
     return;
   }
 
-  section.style.display = 'block';
   if (badge) {
     badge.textContent   = peers.length + ' peer' + (peers.length !== 1 ? 's' : '');
     badge.style.display = '';
@@ -1192,7 +1203,7 @@ function renderPeerList(peers) {
     <div class="peer-row">
       <div>
         <div class="peer-hostname">${escHtml(p.hostname)}</div>
-        <div class="peer-ip">${escHtml(p.ip)}</div>
+        <div class="peer-ip">${escHtml(p.ip)}${p.port && p.port !== 80 ? ':' + p.port : ''}</div>
       </div>
       <button class="btn-small btn-edit" onclick="syncFromPeer('${escHtml(p.ip)}',${p.port||80})">Sync sessions</button>
     </div>`).join('');

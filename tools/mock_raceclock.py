@@ -230,7 +230,10 @@ def main():
     #   name    = instance name     (raceclock2._raceclock._tcp.local.)
     #   server  = SRV target host   (raceclock2.local.)  ← what MDNS.hostname(i) returns
     #   addresses / port            = where the HTTP server actually listens
-    zc   = Zeroconf()
+    # Bind to the specific LAN interface so the A record carries the real IP,
+    # not 0.0.0.0.  Without this, zeroconf may advertise the all-interfaces
+    # address which the ESP32 reports back as 0.0.0.0.
+    zc   = Zeroconf(interfaces=[local_ip])
     info = ServiceInfo(
         "_raceclock._tcp.local.",
         f"{hostname}._raceclock._tcp.local.",

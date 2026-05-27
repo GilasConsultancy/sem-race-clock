@@ -471,6 +471,21 @@ button.danger:hover { background: #bb1418; }
   line-height: 1.5;
 }
 
+/* ─── WiFi section header (label + action button on same line) ── */
+.wifi-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+/* ─── Peer empty / scanning state ────────────────────── */
+.wifi-peer-empty {
+  font-size: 12px;
+  color: #bbb;
+  padding: 4px 0 2px;
+}
+
 /* ─── Peer clock list ─────────────────────────────────── */
 .peer-row {
   display: flex;
