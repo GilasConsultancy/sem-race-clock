@@ -252,9 +252,13 @@ def push_to_peers(zc: Zeroconf, local_ip: str, local_port: int,
         def remove_service(self, *_): pass
         def update_service(self, *_): pass
 
-    browser = ServiceBrowser(zc, "_raceclock._tcp.local.", _Listener())
-    time.sleep(2)          # let ServiceBrowser collect responses
-    browser.cancel()
+    # Use a *separate* Zeroconf instance for browsing so the ServiceBrowser
+    # never touches zc — the instance that is advertising our own service.
+    # Closing browse_zc also cancels the browser cleanly.
+    browse_zc = Zeroconf(interfaces=[local_ip])
+    ServiceBrowser(browse_zc, "_raceclock._tcp.local.", _Listener())
+    time.sleep(2)          # let the browser collect responses
+    browse_zc.close()
 
     with found_lock:
         peers = dict(found)
