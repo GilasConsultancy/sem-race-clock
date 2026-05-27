@@ -504,6 +504,38 @@ button.danger:hover { background: #bb1418; }
   padding: 4px 0 2px;
 }
 
+/* ─── Toast notifications ─────────────────────────────── */
+#toastContainer {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  z-index: 2000;
+  pointer-events: none;
+}
+.toast {
+  min-width: 220px;
+  max-width: 340px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.22s, transform 0.22s;
+  pointer-events: auto;
+  text-align: center;
+}
+.toast.show  { opacity: 1; transform: translateY(0); }
+.toast.info  { background: #1a1a1a; }
+.toast.ok    { background: #2e7d32; }
+.toast.error { background: #DD1D21; }
+
 /* ─── Peer clock list ─────────────────────────────────── */
 .peer-row {
   display: flex;

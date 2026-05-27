@@ -91,6 +91,8 @@
     <span class="header-title">Race Clock</span>
   </header>
 
+  <div id="toastContainer"></div>
+
   <main>
     <div id="apBanner" style="display:none" class="ap-banner">
       No WiFi &mdash; AP mode active. Connect to <strong>RaceClock</strong>
@@ -1124,6 +1126,23 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Toast notifications ───────────────────────────────────────────────────────
+// type: 'info' (dark) | 'ok' (green) | 'error' (red)
+function showToast(message, type = 'info', durationMs = 3000) {
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  container.appendChild(el);
+  // Trigger enter animation
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  // Auto-dismiss
+  setTimeout(() => {
+    el.classList.remove('show');
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+  }, durationMs);
+}
+
 function togglePassVisibility() {
   const inp    = document.getElementById('wifiPass');
   const show   = inp.type === 'password';
@@ -1231,7 +1250,7 @@ async function syncFromPeer(ip, port = 80) {
     const r    = await fetch(`${base}/api/sessions`);
     const data = await r.json();
     if (!Array.isArray(data) || data.length === 0) {
-      alert('Peer has no sessions to copy.');
+      showToast('Peer has no sessions to copy.', 'info');
       return;
     }
     if (!await confirm(`Copy ${data.length} session(s) from ${ip}? This will replace all current sessions.`)) return;
@@ -1248,9 +1267,9 @@ async function syncFromPeer(ip, port = 80) {
       });
     }
     await loadSessions();
-    alert(`Synced ${data.length} session(s) from ${ip}.`);
+    showToast(`Synced ${data.length} session(s) from ${ip}.`, 'ok');
   } catch(e) {
-    alert('Could not reach peer: ' + e.message);
+    showToast('Could not reach peer: ' + e.message, 'error');
   }
 }
 
