@@ -1155,7 +1155,7 @@ async function addWifi() {
 }
 
 async function wifiRemove(idx) {
-  if (!confirm('Remove this network?')) return;
+  if (!await confirm('Remove this network?')) return;
   try {
     await fetch('/api/wifi/remove', {
       method: 'POST',
@@ -1234,7 +1234,7 @@ async function syncFromPeer(ip, port = 80) {
       alert('Peer has no sessions to copy.');
       return;
     }
-    if (!confirm(`Copy ${data.length} session(s) from ${ip}? This will replace all current sessions.`)) return;
+    if (!await confirm(`Copy ${data.length} session(s) from ${ip}? This will replace all current sessions.`)) return;
 
     // Clear existing sessions first
     await fetch('/api/sessions/clear', { method: 'POST' });
