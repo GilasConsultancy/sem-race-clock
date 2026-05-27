@@ -54,7 +54,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 // ─────────────────────────────────────────────────────────────
 
 // --- Version ---
-#define FIRMWARE_VERSION "0.4.6"
+#define FIRMWARE_VERSION "0.4.7"
 #define GITHUB_OWNER     "gilasconsultancy"
 #define GITHUB_REPO      "sem-race-clock"
 
@@ -1077,7 +1077,6 @@ void negotiateDeviceNumber() {
     for (int i = 1; i <= PEER_MAX + 1; i++) {
       if (!taken[i]) { deviceNum = i; break; }
     }
-    prefs.putInt("device_num", deviceNum);
     effectiveHostname = (deviceNum == 1) ? String(BASE_HOSTNAME)
                                          : String(BASE_HOSTNAME) + String(deviceNum);
     Serial.printf("[Peers] Number %d taken — reassigned to %d (%s)\n",
@@ -1251,9 +1250,11 @@ void setup() {
   prefs.begin("semclock", false);
   currentTZName = prefs.getString("tz", "Europe/Warsaw");
   warnMinutes   = prefs.getInt("warn", 5);
-  deviceNum       = prefs.getInt("device_num", 1);
-  effectiveHostname = (deviceNum == 1) ? String(BASE_HOSTNAME)
-                                       : String(BASE_HOSTNAME) + String(deviceNum);
+  // device_num is NOT loaded from NVS — always start from 1 and negotiate at
+  // boot.  Persisting the number caused "stuck" states when the mDNS cache
+  // had stale entries from a previous boot, making the board think its own
+  // hostname was already taken by another device.
+  prefs.remove("device_num");   // clear any leftover value from v0.4.6
 
   // Restore cached POSIX rule so DST is correct before the network comes up.
   // applyTimezone() will overwrite this with a fresh fetch once WiFi connects.
