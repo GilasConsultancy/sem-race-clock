@@ -67,6 +67,7 @@ _bootstrap()
 import argparse
 import json
 import socket
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -78,6 +79,75 @@ MOCK_SESSIONS = [
     {"type": "Urban Concept", "start": "10:30", "lastStart": "11:20", "end": "11:30"},
     {"type": "Prototype",     "start": "14:00", "lastStart": "14:50", "end": "15:00"},
 ]
+
+# ── Push-test state ───────────────────────────────────────────────────────────
+# When the real board pushes sessions here (clear → N×POST /api/sessions) we
+# validate each received session and print a PASS/FAIL summary to the terminal.
+_push_lock     = threading.Lock()
+_push_timer    = None   # threading.Timer — fires when the push burst ends
+_push_source   = None   # IP of the sender
+_push_received = []     # sessions collected in the current push
+
+
+def _t2m(t: str) -> int:
+    """'HH:MM' → minutes since midnight, or -1 on error."""
+    try:
+        h, m = t.split(":")
+        return int(h) * 60 + int(m)
+    except Exception:
+        return -1
+
+
+def _validate(s: dict) -> list:
+    """Return list of error strings; empty list means the session is valid."""
+    errs = []
+    for f in ("type", "start", "lastStart", "end"):
+        if not s.get(f):
+            errs.append(f"missing '{f}'")
+    if not errs:
+        st, ls, en = _t2m(s["start"]), _t2m(s["lastStart"]), _t2m(s["end"])
+        if st < 0 or ls < 0 or en < 0:
+            errs.append("time not in HH:MM format")
+        elif not (st < ls < en):
+            errs.append(f"order wrong  ({s['start']} < {s['lastStart']} < {s['end']}  must hold)")
+    return errs
+
+
+def _push_summary():
+    """Print test results after a push sequence completes (called from Timer thread)."""
+    with _push_lock:
+        sessions = list(_push_received)
+        source   = _push_source or "?"
+
+    W = 52  # box width
+    print()
+    print(f"  ╔{'═' * W}╗")
+    print(f"  ║{'  Push test  —  from ' + source :<{W}}║")
+    print(f"  ╠{'═' * W}╣")
+
+    if not sessions:
+        print(f"  ║  {'✗  No sessions received — empty schedule was pushed.':<{W-2}}║")
+        verdict, icon = "FAIL", "❌"
+    else:
+        all_ok = True
+        for i, s in enumerate(sessions, 1):
+            errs = _validate(s)
+            if errs:
+                all_ok = False
+                for e in errs:
+                    line = f"✗  Session {i}: {e}"
+                    print(f"  ║  {line:<{W-2}}║")
+            else:
+                line = f"✓  [{i}] {s['type']}  {s['start']} → {s['lastStart']} → {s['end']}"
+                print(f"  ║  {line:<{W-2}}║")
+        verdict, icon = ("PASS", "✅") if all_ok else ("FAIL", "❌")
+
+    print(f"  ╠{'═' * W}╣")
+    n   = len(sessions)
+    msg = f"{icon}  {verdict}  —  {n} session{'s' if n != 1 else ''} received"
+    print(f"  ║  {msg:<{W-2}}║")
+    print(f"  ╚{'═' * W}╝")
+    print()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -158,11 +228,22 @@ def make_handler(device_num: int, hostname: str):
 
         # ── POST routes ─────────────────────────────────────────────────────
         def do_POST(self):
+            global _push_timer, _push_source, _push_received
+
             length = int(self.headers.get("Content-Length", 0))
             body   = self.rfile.read(length)
 
             if self.path == "/api/sessions/clear":
+                before = len(MOCK_SESSIONS)
                 MOCK_SESSIONS.clear()
+                with _push_lock:
+                    if _push_timer:
+                        _push_timer.cancel()
+                        _push_timer = None
+                    _push_source   = self.client_address[0]
+                    _push_received = []
+                print(f"\n  📥  Push started from {_push_source}"
+                      f" — clearing {before} existing session(s)…")
                 self._json({"ok": True})
 
             elif self.path == "/api/sessions":
@@ -170,6 +251,13 @@ def make_handler(device_num: int, hostname: str):
                     payload = json.loads(body)
                     session = payload.get("session", payload)
                     MOCK_SESSIONS.append(session)
+                    with _push_lock:
+                        _push_received.append(session)
+                        if _push_timer:
+                            _push_timer.cancel()
+                        # Fire summary 0.8 s after the last session in the burst
+                        _push_timer = threading.Timer(0.8, _push_summary)
+                        _push_timer.start()
                     self._json({"ok": True})
                 except Exception:
                     self.send_response(400)
