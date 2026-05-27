@@ -666,7 +666,7 @@ async function saveSession() {
     body: JSON.stringify({ index: idx, session: { type, start, lastStart, end } })
   });
   const result = await r.json();
-  if (result.ok) { await loadSessions(); hideAddForm(); }
+  if (result.ok) { await loadSessions(); hideAddForm(); await offerPushToPeers(); }
   else showStatus('formStatus', result.error || 'Failed to save.', true);
 }
 
@@ -685,7 +685,7 @@ async function deleteSession(i) {
     body: JSON.stringify({ index: i })
   });
   const result = await r.json();
-  if (result.ok) await loadSessions();
+  if (result.ok) { await loadSessions(); await offerPushToPeers(); }
 }
 
 async function clearAll() {
@@ -693,7 +693,7 @@ async function clearAll() {
   if (!ok) return;
   const r      = await fetch('/api/sessions/clear', { method: 'POST' });
   const result = await r.json();
-  if (result.ok) await loadSessions();
+  if (result.ok) { await loadSessions(); await offerPushToPeers(); }
 }
 
 // ── P10 canvas display preview ─────────────────────────────────────────────
@@ -1004,9 +1004,10 @@ async function importSEMSessions() {
       const d = await r.json();
       if (d.ok) ok++; else fail++;
     }
-    loadSessions();
+    await loadSessions();
     if (fail === 0) {
       showStatus('semImportStatus', `${ok} session${ok > 1 ? 's' : ''} imported.`, false);
+      await offerPushToPeers();
       setTimeout(() => {
         semPanelOpen = false;
         document.getElementById('semPanel').style.display   = 'none';
@@ -1221,13 +1222,19 @@ async function loadPeers() {
   } catch(e) { /* not critical — silently ignore */ }
 }
 
+// Number of peers currently visible in the list — updated by renderPeerList.
+// Used by offerPushToPeers() to decide whether to prompt after a session change.
+let knownPeerCount = 0;
+
 function renderPeerList(peers) {
-  const list   = document.getElementById('wifiPeerList');
-  const badge  = document.getElementById('wifiPeerBadge');
+  const list    = document.getElementById('wifiPeerList');
+  const badge   = document.getElementById('wifiPeerBadge');
   const btnPush = document.getElementById('btnPushPeers');
   if (!list) return;
 
-  if (!peers || peers.length === 0) {
+  knownPeerCount = peers ? peers.length : 0;
+
+  if (knownPeerCount === 0) {
     if (badge)   badge.style.display   = 'none';
     if (btnPush) btnPush.style.display = 'none';
     list.innerHTML = '<div class="wifi-peer-empty">No other clocks found on network</div>';
@@ -1235,7 +1242,7 @@ function renderPeerList(peers) {
   }
 
   if (badge) {
-    badge.textContent   = peers.length + ' peer' + (peers.length !== 1 ? 's' : '');
+    badge.textContent   = knownPeerCount + ' peer' + (knownPeerCount !== 1 ? 's' : '');
     badge.style.display = '';
   }
   if (btnPush) btnPush.style.display = '';
@@ -1249,8 +1256,8 @@ function renderPeerList(peers) {
     </div>`).join('');
 }
 
-async function pushToAllPeers() {
-  if (!await confirm('Push your sessions to all peers? This will replace their sessions.')) return;
+// Execute the push without asking for confirmation (caller has already confirmed).
+async function _executePush() {
   const btn = document.getElementById('btnPushPeers');
   if (btn) { btn.disabled = true; btn.textContent = 'Pushing…'; }
   try {
@@ -1265,6 +1272,20 @@ async function pushToAllPeers() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↑ Push sessions'; }
   }
+}
+
+// Triggered by the "Push sessions" header button — asks first, then pushes.
+async function pushToAllPeers() {
+  if (!await confirm('Push your sessions to all peers? This will replace their sessions.')) return;
+  await _executePush();
+}
+
+// Called after any local session change — prompts to push only when peers are known.
+async function offerPushToPeers() {
+  if (!knownPeerCount) return;
+  const noun = knownPeerCount === 1 ? '1 peer' : `${knownPeerCount} peers`;
+  if (!await confirm(`Push updated sessions to ${noun}?`)) return;
+  await _executePush();
 }
 
 // ── Collapsible card toggles ───────────────────────────
