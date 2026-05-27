@@ -675,10 +675,11 @@ void handleGetPeers() {
     int n = MDNS.queryService("raceclock", "tcp");
     lastPeerScan = millis();
     for (int i = 0; i < n; i++) {
-      if (MDNS.address(i) == WiFi.localIP()) continue;  // skip self
+      IPAddress addr = resolveAddress(i);
+      if (addr == WiFi.localIP()) continue;  // skip self
       if (peerCount >= PEER_MAX) break;
       peers[peerCount].hostname = MDNS.hostname(i) + ".local";
-      peers[peerCount].ip       = MDNS.address(i).toString();
+      peers[peerCount].ip       = addr.toString();
       peers[peerCount].port     = MDNS.port(i);
       peerCount++;
     }
@@ -1045,6 +1046,23 @@ void performFilesystemUpdate() {
       break;
   }
 }
+// ── Peer helpers ─────────────────────────────────────────────────────────────
+// MDNS.address(i) returns 0.0.0.0 when the A record wasn't included as an
+// additional record in the SRV/PTR response (common with non-ESP mDNS
+// responders such as Python zeroconf).  Fall back to an explicit A-record
+// query for the hostname in that case.
+static IPAddress resolveAddress(int i) {
+  IPAddress addr = MDNS.address(i);
+  if (addr != IPAddress(0, 0, 0, 0)) return addr;
+  String h = MDNS.hostname(i);          // e.g. "raceclock2"
+  addr = MDNS.queryHost(h.c_str());     // explicit A-record lookup
+  if (addr == IPAddress(0, 0, 0, 0)) {
+    // Try with ".local" suffix — some stacks need it
+    addr = MDNS.queryHost((h + ".local").c_str());
+  }
+  return addr;
+}
+
 // ── Peer device-number negotiation ──────────────────────────────────────────
 // Scans for other race clocks via mDNS and claims a unique device number.
 // Called once during setup() after WiFi connects, before the web server starts.
@@ -1056,7 +1074,7 @@ void negotiateDeviceNumber() {
   bool taken[PEER_MAX + 2] = {};  // index = device number, true = in use
   peerCount = 0;
   for (int i = 0; i < n; i++) {
-    IPAddress peerIP = MDNS.address(i);
+    IPAddress peerIP = resolveAddress(i);
     if (peerIP == WiFi.localIP()) continue;  // skip self
     String h = MDNS.hostname(i);
     // "raceclock" → 1, "raceclock2" → 2, "raceclock3" → 3, …
