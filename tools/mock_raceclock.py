@@ -8,22 +8,24 @@ test peer discovery and session sync without a second ESP32 board.
 
 Usage
 ─────
-  sudo python3 tools/mock_raceclock.py          # full test — port 80, sync works
-  python3 tools/mock_raceclock.py               # detection only — falls back to 8080
-  python3 tools/mock_raceclock.py --num 3       # simulate device 3 instead of 2
+  sudo python3 tools/mock_raceclock.py           # full test — port 80
+  python3 tools/mock_raceclock.py                # falls back to port 8080
+  python3 tools/mock_raceclock.py --num 3        # simulate device 3 instead of 2
+  python3 tools/mock_raceclock.py --push         # push mock sessions → real board
+  python3 tools/mock_raceclock.py --push --push-delay 5   # wait 5 s before pushing
 
 What gets tested
 ────────────────
-  Detection  The real board boots, scans, finds this mock via mDNS, and shows it
-             in the WiFi card under "OTHER RACE CLOCKS ON NETWORK".  It also uses
-             the mock's presence to negotiate its own device number (stays at 1
-             because 2 is taken).
+  Detection   The real board boots, scans, finds this mock via mDNS, and shows it
+              in the WiFi card under "PEERS".  It also uses the mock's presence to
+              negotiate its own device number (stays at 1 because 2 is taken).
 
-  Sync       Clicking "Sync sessions" in the web UI fetches /api/sessions from the
-             mock and copies the three sample sessions to the real board.
-             *** This requires port 80 — run with sudo. ***
-             Without sudo the script falls back to port 8080; detection still works
-             but the browser fetch (http://<ip>/api/sessions) hits port 80 and fails.
+  Push IN     Click "↑ Push sessions" in the web UI — the board posts its sessions
+              here.  The mock validates each session and prints a PASS/FAIL summary.
+
+  Push OUT    Run with --push.  After startup the mock discovers the real board via
+              mDNS and posts its three sample sessions to it, printing a PASS/FAIL
+              summary.  The board's session list updates immediately.
 
 Requirements
 ────────────
@@ -69,9 +71,11 @@ import json
 import socket
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from zeroconf import ServiceInfo, Zeroconf
+from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf
 
 # ── Sample sessions (deliberately different from what the real board might have)
 MOCK_SESSIONS = [
@@ -148,6 +152,119 @@ def _push_summary():
     print(f"  ║  {msg:<{W-2}}║")
     print(f"  ╚{'═' * W}╝")
     print()
+
+
+# ── Outbound push ────────────────────────────────────────────────────────────
+
+def _http_post(ip: str, port: int, path: str, payload: dict) -> tuple:
+    """POST JSON to ip:port/path.  Returns (http_status, response_dict)."""
+    url  = f"http://{ip}:{port}{path}"
+    data = json.dumps(payload).encode()
+    req  = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read())
+        except Exception:
+            body = {}
+        return e.code, body
+    except Exception as e:
+        raise RuntimeError(str(e)) from e
+
+
+def _push_to_peer(name: str, ip: str, port: int, sessions: list) -> None:
+    """Push mock sessions to one peer clock and print a boxed PASS/FAIL result."""
+    W = 52
+    print()
+    print(f"  ╔{'═' * W}╗")
+    print(f"  ║{'  Push test  —  to ' + name:<{W}}║")
+    print(f"  ╠{'═' * W}╣")
+
+    try:
+        # Step 1 — clear
+        status, body = _http_post(ip, port, "/api/sessions/clear", {})
+        if status not in range(200, 300):
+            msg = f"✗  Clear failed (HTTP {status})"
+            print(f"  ║  {msg:<{W-2}}║")
+            print(f"  ╠{'═' * W}╣")
+            print(f"  ║  {'❌  FAIL':<{W-2}}║")
+            print(f"  ╚{'═' * W}╝")
+            print()
+            return
+
+        # Step 2 — push each session
+        ok = fail = 0
+        for i, s in enumerate(sessions, 1):
+            status, body = _http_post(ip, port, "/api/sessions",
+                                      {"index": -1, "session": s})
+            if status in range(200, 300) and body.get("ok"):
+                ok += 1
+                line = (f"✓  [{i}] {s.get('type','?')}  "
+                        f"{s.get('start','?')} → {s.get('lastStart','?')} → {s.get('end','?')}")
+            else:
+                fail += 1
+                err  = body.get("error", f"HTTP {status}")
+                line = f"✗  [{i}] {s.get('type','?')}: {err}"
+            print(f"  ║  {line:<{W-2}}║")
+
+        verdict = "PASS" if fail == 0 else "FAIL"
+        icon    = "✅" if fail == 0 else "❌"
+
+    except RuntimeError as e:
+        print(f"  ║  {'✗  Connection failed: ' + str(e):<{W-2}}║")
+        verdict, icon = "FAIL", "❌"
+
+    n   = len(sessions)
+    msg = f"{icon}  {verdict}  —  {n} session{'s' if n != 1 else ''} pushed"
+    print(f"  ╠{'═' * W}╣")
+    print(f"  ║  {msg:<{W-2}}║")
+    print(f"  ╚{'═' * W}╝")
+    print()
+
+
+def push_to_peers(zc: Zeroconf, local_ip: str, local_port: int,
+                  sessions: list, delay: float = 3.0) -> None:
+    """Discover other race clocks via mDNS and push sessions to each one."""
+    print(f"\n  Waiting {delay:.0f} s for mDNS discovery before pushing…")
+    time.sleep(delay)
+
+    found: dict[str, tuple] = {}   # name → (ip, port)
+    found_lock = threading.Lock()
+
+    class _Listener:
+        def add_service(self, zc_, type_, name):
+            info = zc_.get_service_info(type_, name)
+            if not info or not info.addresses:
+                return
+            ip   = socket.inet_ntoa(info.addresses[0])
+            port = info.port
+            if ip == local_ip and port == local_port:
+                return  # skip self
+            with found_lock:
+                found[name] = (ip, port)
+
+        def remove_service(self, *_): pass
+        def update_service(self, *_): pass
+
+    browser = ServiceBrowser(zc, "_raceclock._tcp.local.", _Listener())
+    time.sleep(2)          # let ServiceBrowser collect responses
+    browser.cancel()
+
+    with found_lock:
+        peers = dict(found)
+
+    if not peers:
+        print("  No other race clocks found — nothing to push to.\n")
+        return
+
+    for name, (ip, port) in peers.items():
+        _push_to_peer(name, ip, port, sessions)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -299,6 +416,14 @@ def main():
         "--num", type=int, default=2, metavar="N",
         help="Device number to simulate (default: 2 → raceclock2.local)",
     )
+    parser.add_argument(
+        "--push", action="store_true",
+        help="After startup, push mock sessions to all discovered real clocks",
+    )
+    parser.add_argument(
+        "--push-delay", type=float, default=3.0, metavar="SECS",
+        help="Seconds to wait for mDNS before pushing (default: 3)",
+    )
     args = parser.parse_args()
 
     device_num = args.num
@@ -367,10 +492,20 @@ def main():
     print(f"│  Sessions : {len(MOCK_SESSIONS)} mock sessions                  │")
     sync_url = f"http://{local_ip}:{port}/api/sessions"
     print(f"│  Sync     : ✓  {sync_url:<29}│")
+    push_mode = f"--push  (after {args.push_delay:.0f} s)" if args.push else "off"
+    print(f"│  Push out : {push_mode:<33}│")
     print("└─────────────────────────────────────────────┘")
     print()
+    if args.push:
+        print("Will push mock sessions to real clocks after mDNS settles.")
     print("Waiting for the real board to discover this mock…")
     print("Press Ctrl+C to stop.\n")
+
+    # ── Outbound push (background thread, fires after --push-delay) ──────────
+    if args.push:
+        def _deferred_push():
+            push_to_peers(zc, local_ip, port, MOCK_SESSIONS, args.push_delay)
+        threading.Thread(target=_deferred_push, daemon=True).start()
 
     # ── HTTP server (runs in this thread) ────────────────────────────────────
     httpd = HTTPServer(("0.0.0.0", port), make_handler(device_num, hostname))
