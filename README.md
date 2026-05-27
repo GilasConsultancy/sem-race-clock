@@ -232,7 +232,8 @@ All endpoints return JSON.
 | `POST` | `/api/override` | `{ text }` — set override (empty string clears) |
 | `GET` | `/api/sem/days` | `{ eventName, days[] }` — available days from SEM API |
 | `GET` | `/api/sem/sessions?date=YYYY-MM-DD` | Array of parsed sessions for that day |
-| `GET` | `/api/peers` | Array of `{ hostname, ip }` for other race clocks on the network |
+| `GET` | `/api/peers` | Array of `{ hostname, ip, port }` for other race clocks on the network |
+| `POST` | `/api/peers/push` | Push this device's sessions to all known peers; returns `{ pushed, skipped }` |
 | `GET` | `/api/wifi` | `{ connected, ip, apMode, networks[] }` — WiFi status + saved networks |
 | `POST` | `/api/wifi/add` | `{ ssid, password }` — add or update a saved network |
 | `POST` | `/api/wifi/remove` | `{ index }` — remove a saved network |

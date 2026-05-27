@@ -156,6 +156,29 @@ def make_handler(device_num: int, hostname: str):
                 self._cors_headers()
                 self.end_headers()
 
+        # ── POST routes ─────────────────────────────────────────────────────
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            body   = self.rfile.read(length)
+
+            if self.path == "/api/sessions/clear":
+                MOCK_SESSIONS.clear()
+                self._json({"ok": True})
+
+            elif self.path == "/api/sessions":
+                try:
+                    payload = json.loads(body)
+                    session = payload.get("session", payload)
+                    MOCK_SESSIONS.append(session)
+                    self._json({"ok": True})
+                except Exception:
+                    self.send_response(400)
+                    self._cors_headers()
+                    self.end_headers()
+
+            else:
+                self._json({"ok": True})  # accept any other POST silently
+
         # ── Helpers ─────────────────────────────────────────────────────────
         def _json(self, data):
             body = json.dumps(data, indent=2).encode()

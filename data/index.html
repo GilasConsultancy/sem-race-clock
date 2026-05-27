@@ -227,8 +227,12 @@
             <!-- Peer race clocks on the local network -->
             <div class="wifi-section-header">
               <p class="device-subsection" style="margin-bottom:0">PEERS</p>
-              <button class="btn-small btn-edit" style="width:auto;padding:3px 10px;font-size:11px;margin:0"
-                      onclick="loadPeers()" title="Scan for other race clocks">↻ Refresh</button>
+              <div style="display:flex;gap:6px">
+                <button class="btn-small btn-edit" style="width:auto;padding:3px 10px;font-size:11px;margin:0"
+                        onclick="loadPeers()" title="Scan for other race clocks">↻ Refresh</button>
+                <button id="btnPushPeers" class="btn-small" style="width:auto;padding:3px 10px;font-size:11px;margin:0;display:none"
+                        onclick="pushToAllPeers()" title="Push my sessions to all peers">↑ Push sessions</button>
+              </div>
             </div>
             <div id="wifiPeers">
               <div id="wifiPeerList" class="wifi-peer-empty">Scanning…</div>
@@ -1218,13 +1222,14 @@ async function loadPeers() {
 }
 
 function renderPeerList(peers) {
-  const section = document.getElementById('wifiPeers');
-  const list    = document.getElementById('wifiPeerList');
-  const badge   = document.getElementById('wifiPeerBadge');
-  if (!section || !list) return;
+  const list   = document.getElementById('wifiPeerList');
+  const badge  = document.getElementById('wifiPeerBadge');
+  const btnPush = document.getElementById('btnPushPeers');
+  if (!list) return;
 
   if (!peers || peers.length === 0) {
-    if (badge) badge.style.display = 'none';
+    if (badge)   badge.style.display   = 'none';
+    if (btnPush) btnPush.style.display = 'none';
     list.innerHTML = '<div class="wifi-peer-empty">No other clocks found on network</div>';
     return;
   }
@@ -1233,6 +1238,7 @@ function renderPeerList(peers) {
     badge.textContent   = peers.length + ' peer' + (peers.length !== 1 ? 's' : '');
     badge.style.display = '';
   }
+  if (btnPush) btnPush.style.display = '';
 
   list.innerHTML = peers.map(p => `
     <div class="peer-row">
@@ -1240,36 +1246,24 @@ function renderPeerList(peers) {
         <div class="peer-hostname">${escHtml(p.hostname)}</div>
         <div class="peer-ip">${escHtml(p.ip)}${p.port && p.port !== 80 ? ':' + p.port : ''}</div>
       </div>
-      <button class="btn-small btn-edit" onclick="syncFromPeer('${escHtml(p.ip)}',${p.port||80})">Sync sessions</button>
     </div>`).join('');
 }
 
-async function syncFromPeer(ip, port = 80) {
+async function pushToAllPeers() {
+  if (!await confirm('Push your sessions to all peers? This will replace their sessions.')) return;
+  const btn = document.getElementById('btnPushPeers');
+  if (btn) { btn.disabled = true; btn.textContent = 'Pushing…'; }
   try {
-    const base = port === 80 ? `http://${ip}` : `http://${ip}:${port}`;
-    const r    = await fetch(`${base}/api/sessions`);
+    const r    = await fetch('/api/peers/push', { method: 'POST' });
     const data = await r.json();
-    if (!Array.isArray(data) || data.length === 0) {
-      showToast('Peer has no sessions to copy.', 'info');
-      return;
-    }
-    if (!await confirm(`Copy ${data.length} session(s) from ${ip}? This will replace all current sessions.`)) return;
-
-    // Clear existing sessions first
-    await fetch('/api/sessions/clear', { method: 'POST' });
-
-    // Post each session
-    for (let i = 0; i < data.length; i++) {
-      await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: -1, session: data[i] })
-      });
-    }
-    await loadSessions();
-    showToast(`Synced ${data.length} session(s) from ${ip}.`, 'ok');
+    if (data.pushed > 0)
+      showToast(`Sessions pushed to ${data.pushed} clock${data.pushed !== 1 ? 's' : ''}.`, 'ok');
+    if (data.skipped > 0)
+      showToast(`${data.skipped} clock${data.skipped !== 1 ? 's' : ''} could not be reached.`, 'error');
   } catch(e) {
-    showToast('Could not reach peer: ' + e.message, 'error');
+    showToast('Push failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↑ Push sessions'; }
   }
 }
 

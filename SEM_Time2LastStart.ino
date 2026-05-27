@@ -696,6 +696,56 @@ void handleGetPeers() {
   server.send(200, "application/json", out);
 }
 
+// --- API: POST /api/peers/push ---
+// Pushes this device's full session list to every known peer clock.
+// The browser calls this same-origin endpoint; the firmware does the
+// peer-to-peer HTTP so no cross-origin CORS preflight is needed.
+void handlePeersPush() {
+  if (peerCount == 0) {
+    server.send(200, "application/json", "{\"pushed\":0,\"skipped\":0}");
+    return;
+  }
+
+  int pushed = 0, skipped = 0;
+  WiFiClient client;
+
+  for (int p = 0; p < peerCount; p++) {
+    String base = "http://" + peers[p].ip + ":" + String(peers[p].port);
+    HTTPClient http;
+
+    // Step 1 — clear sessions on peer
+    http.begin(client, base + "/api/sessions/clear");
+    http.addHeader("Content-Type", "application/json");
+    int rc = http.POST("");
+    http.end();
+    if (rc < 200 || rc > 299) { skipped++; continue; }
+
+    // Step 2 — push each session individually
+    bool ok = true;
+    for (int i = 0; i < sessionCount && ok; i++) {
+      JsonDocument body;
+      body["index"] = -1;
+      JsonObject s  = body["session"].to<JsonObject>();
+      s["type"]     = sessions[i].type;
+      char buf[6];
+      sprintf(buf, "%02d:%02d", sessions[i].startH,     sessions[i].startM);     s["start"]     = buf;
+      sprintf(buf, "%02d:%02d", sessions[i].lastStartH, sessions[i].lastStartM); s["lastStart"] = buf;
+      sprintf(buf, "%02d:%02d", sessions[i].endH,        sessions[i].endM);       s["end"]       = buf;
+      String bodyStr; serializeJson(body, bodyStr);
+
+      http.begin(client, base + "/api/sessions");
+      http.addHeader("Content-Type", "application/json");
+      rc = http.POST(bodyStr);
+      http.end();
+      if (rc < 200 || rc > 299) ok = false;
+    }
+    if (ok) pushed++; else skipped++;
+  }
+
+  server.send(200, "application/json",
+    "{\"pushed\":" + String(pushed) + ",\"skipped\":" + String(skipped) + "}");
+}
+
 // --- API: GET /api/settings ---
 void handleGetSettings() {
   JsonDocument doc;
@@ -1424,6 +1474,7 @@ void setup() {
   server.on("/api/wifi/move",      HTTP_POST, handleWifiMove);
   server.on("/api/wifi/restart",   HTTP_POST, handleWifiRestart);
   server.on("/api/peers",          HTTP_GET,  handleGetPeers);
+  server.on("/api/peers/push",     HTTP_POST, handlePeersPush);
   server.on("/api/version",        HTTP_GET,  handleGetVersion);
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);
