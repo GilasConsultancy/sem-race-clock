@@ -1189,6 +1189,8 @@ async function wifiRestart() {
 
 // ── Peer race clocks ───────────────────────────────────
 async function loadPeers() {
+  const list = document.getElementById('wifiPeerList');
+  if (list) list.innerHTML = '<div class="wifi-peer-empty">Scanning…</div>';
   try {
     const r     = await fetch('/api/peers');
     const peers = await r.json();
