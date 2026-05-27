@@ -400,6 +400,29 @@ async function loadAll() {
   loadVersion();   // fire-and-forget; fills #fwVersion
   loadWifi();      // fire-and-forget; fills #wifiStatus
   loadPeers();     // fire-and-forget; fills #wifiPeers
+  setInterval(_pollForExternalSessionChanges, 8000);
+}
+
+// ── Background session polling ─────────────────────────────────────────────
+// Detects sessions pushed to this device by another clock.
+// Skips when the edit form is open (avoids yanking it away mid-edit).
+let _lastKnownSessionsJson = '';
+let _pollInFlight          = false;
+
+async function _pollForExternalSessionChanges() {
+  if (_pollInFlight) return;
+  if (document.getElementById('addForm').style.display !== 'none') return;
+  _pollInFlight = true;
+  try {
+    const r    = await fetch('/api/sessions', { cache: 'no-store' });
+    const data = await r.json();
+    const json = JSON.stringify(data);
+    if (_lastKnownSessionsJson && json !== _lastKnownSessionsJson) {
+      await loadSessions();  // also updates _lastKnownSessionsJson
+      showToast('Schedule updated remotely.', 'info', 4000);
+    }
+  } catch(e) { /* device busy — try again next interval */ }
+  finally { _pollInFlight = false; }
 }
 
 // ── Clock — synced to device time ──────────────────────
@@ -531,6 +554,7 @@ async function loadSessions() {
   try {
     const r  = await fetch('/api/sessions');
     sessions = await r.json();
+    _lastKnownSessionsJson = JSON.stringify(sessions);
     renderSessions();
   } catch(e) {
     document.getElementById('sessionList').innerHTML =
