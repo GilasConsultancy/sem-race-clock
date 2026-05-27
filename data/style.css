@@ -379,15 +379,33 @@ button.danger:hover { background: #bb1418; }
   cursor: default;
 }
 
-/* ─── Password row ────────────────────────────────────── */
-.password-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin-bottom: 8px;
+/* ─── Input with inline icon ──────────────────────────── */
+.input-icon-wrap {
+  position: relative;
+  margin-bottom: 16px;
 }
-.password-row input       { flex: 1; margin-bottom: 0; }
-.btn-reveal               { flex: 0 0 auto; width: auto; padding: 10px 14px; margin-top: 0; }
+.input-icon-wrap input {
+  width: 100%;
+  margin-bottom: 0;
+  padding-right: 42px;   /* room for the eye button */
+}
+.btn-eye {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  width: auto;
+  margin: 0;
+  color: #bbb;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+.btn-eye:hover { background: none; color: #555; }
 
 /* ─── Device card (collapsible) ──────────────────────── */
 .device-toggle {
