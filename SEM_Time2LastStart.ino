@@ -54,7 +54,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 // ─────────────────────────────────────────────────────────────
 
 // --- Version ---
-#define FIRMWARE_VERSION "0.4.7"
+#define FIRMWARE_VERSION "0.4.8"
 #define GITHUB_OWNER     "gilasconsultancy"
 #define GITHUB_REPO      "sem-race-clock"
 
@@ -83,7 +83,7 @@ static int    deviceNum         = 1;             // persisted in NVS key "device
 static String effectiveHostname = "raceclock";   // BASE_HOSTNAME + deviceNum (>1 appends number)
 static uint32_t lastPeerScan   = 0;
 
-struct PeerDevice { String hostname; String ip; };
+struct PeerDevice { String hostname; String ip; uint16_t port; };
 static const int PEER_MAX = 9;
 static PeerDevice peers[PEER_MAX];
 static int        peerCount = 0;
@@ -679,6 +679,7 @@ void handleGetPeers() {
       if (peerCount >= PEER_MAX) break;
       peers[peerCount].hostname = MDNS.hostname(i) + ".local";
       peers[peerCount].ip       = MDNS.address(i).toString();
+      peers[peerCount].port     = MDNS.port(i);
       peerCount++;
     }
   }
@@ -688,6 +689,7 @@ void handleGetPeers() {
     JsonObject o = arr.add<JsonObject>();
     o["hostname"] = peers[i].hostname;
     o["ip"]       = peers[i].ip;
+    o["port"]     = peers[i].port;
   }
   String out; serializeJson(doc, out);
   server.send(200, "application/json", out);
@@ -1067,6 +1069,7 @@ void negotiateDeviceNumber() {
     if (peerCount < PEER_MAX) {
       peers[peerCount].hostname = h + ".local";
       peers[peerCount].ip       = peerIP.toString();
+      peers[peerCount].port     = MDNS.port(i);
       peerCount++;
     }
   }

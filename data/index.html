@@ -1194,13 +1194,14 @@ function renderPeerList(peers) {
         <div class="peer-hostname">${escHtml(p.hostname)}</div>
         <div class="peer-ip">${escHtml(p.ip)}</div>
       </div>
-      <button class="btn-small btn-edit" onclick="syncFromPeer('${escHtml(p.ip)}')">Sync sessions</button>
+      <button class="btn-small btn-edit" onclick="syncFromPeer('${escHtml(p.ip)}',${p.port||80})">Sync sessions</button>
     </div>`).join('');
 }
 
-async function syncFromPeer(ip) {
+async function syncFromPeer(ip, port = 80) {
   try {
-    const r    = await fetch(`http://${ip}/api/sessions`);
+    const base = port === 80 ? `http://${ip}` : `http://${ip}:${port}`;
+    const r    = await fetch(`${base}/api/sessions`);
     const data = await r.json();
     if (!Array.isArray(data) || data.length === 0) {
       alert('Peer has no sessions to copy.');
