@@ -12,6 +12,10 @@
 #include <ezTime.h>
 #include <HTTPUpdate.h>
 
+// ESP-IDF direct call — lets us rename the mDNS hostname after MDNS.begin()
+// without re-initialising the stack (calling MDNS.begin() twice would fail).
+extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
+
 // ─── Hardware configuration ──────────────────────────────────
 // Uncomment a line when that hardware is physically connected.
 // Each flag pulls in the required library and replaces the
@@ -45,17 +49,17 @@
 
 #ifdef HAS_P10
 #include <DMD2.h>
-#include <fonts/SystemFont5x7.h>
+#include <fonts/Arial14.h>       // system messages and scroll (TRACK CLOSED, etc.)
 #endif
 // ─────────────────────────────────────────────────────────────
 
 // --- Version ---
-#define FIRMWARE_VERSION "0.4.5"
+#define FIRMWARE_VERSION "0.4.6"
 #define GITHUB_OWNER     "gilasconsultancy"
 #define GITHUB_REPO      "sem-race-clock"
 
 // --- Configuration ---
-const char* hostname = "raceclock";
+static const char* BASE_HOSTNAME = "raceclock";  // base mDNS name shared by all devices
 
 #define MAX_SESSIONS 20
 
@@ -73,6 +77,16 @@ static const int WIFI_MAX = 10;
 WifiNetwork wifiNets[WIFI_MAX];
 int         wifiNetCount  = 0;
 int         wifiActiveIdx = -1;   // index of currently-connected network (-1 = none)
+
+// --- Peer discovery ---
+static int    deviceNum         = 1;             // persisted in NVS key "device_num"
+static String effectiveHostname = "raceclock";   // BASE_HOSTNAME + deviceNum (>1 appends number)
+static uint32_t lastPeerScan   = 0;
+
+struct PeerDevice { String hostname; String ip; };
+static const int PEER_MAX = 9;
+static PeerDevice peers[PEER_MAX];
+static int        peerCount = 0;
 
 // --- Clock states ---
 enum ClockState {
@@ -176,26 +190,147 @@ void p10UpdateScroll() {
   if (millis() - p10LastScroll < 50) return;
   p10LastScroll = millis();
   dmd.clearScreen(true);
-  dmd.selectFont(SystemFont5x7);
-  dmd.drawString(p10ScrollX, 4, p10ScrollText.c_str(),
+  dmd.selectFont(Arial14);
+  // y=1: centres the 14-tall font in the 16-row panel
+  dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str(),
                  p10ScrollText.length(), GRAPHICS_NORMAL);
   int tw = dmd.stringWidth(p10ScrollText.c_str());
   p10ScrollX -= 2;
   if (p10ScrollX < -tw) p10ScrollX = P10_WIDTH;   // loop
 }
+
+// ── Custom pixel fonts ────────────────────────────────────────────────────────
+
+// Large digit font: 6 wide × 9 tall.
+// Each byte encodes one row; bit 5 = leftmost pixel, bit 0 = rightmost.
+static const uint8_t DIGIT_FONT[10][9] = {
+  { 0x1E, 0x3F, 0x33, 0x33, 0x33, 0x33, 0x33, 0x3F, 0x1E }, // 0
+  { 0x1C, 0x3C, 0x2C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3F, 0x3F }, // 1
+  { 0x1E, 0x3F, 0x33, 0x03, 0x06, 0x0C, 0x18, 0x3F, 0x3F }, // 2
+  { 0x1E, 0x3F, 0x33, 0x0F, 0x0F, 0x03, 0x33, 0x3F, 0x1E }, // 3
+  { 0x30, 0x33, 0x33, 0x33, 0x3F, 0x3F, 0x03, 0x03, 0x03 }, // 4
+  { 0x3F, 0x3F, 0x30, 0x3E, 0x3F, 0x03, 0x33, 0x3F, 0x1E }, // 5
+  { 0x1E, 0x3F, 0x30, 0x3E, 0x3F, 0x33, 0x33, 0x3F, 0x1E }, // 6
+  { 0x3E, 0x3E, 0x06, 0x06, 0x0F, 0x0F, 0x06, 0x06, 0x06 }, // 7
+  { 0x1E, 0x3F, 0x33, 0x3F, 0x3F, 0x33, 0x33, 0x3F, 0x1E }, // 8
+  { 0x1E, 0x3F, 0x33, 0x33, 0x3F, 0x1F, 0x03, 0x3F, 0x1E }, // 9
+};
+
+// Draw one large digit at pixel position (x, y).
+static void drawCustomDigit(int x, int y, char d) {
+  if (d < '0' || d > '9') return;
+  const uint8_t* rows = DIGIT_FONT[d - '0'];
+  for (int row = 0; row < 9; row++) {
+    uint8_t bits = rows[row];
+    for (int col = 0; col < 6; col++)
+      dmd.writePixel(x + col, y + row,
+                     (bits >> (5 - col)) & 1 ? GRAPHICS_ON : GRAPHICS_OFF);
+  }
+}
+
+// Draw colon glyph at (x, y): two 2×2 dot groups, each offset 1 px from the
+// left edge of the 4-wide colon gap.  Upper dots at row+2..+3, lower at +5..+6.
+static void drawCustomColon(int x, int y) {
+  dmd.writePixel(x + 1, y + 2, GRAPHICS_ON);
+  dmd.writePixel(x + 2, y + 2, GRAPHICS_ON);
+  dmd.writePixel(x + 1, y + 3, GRAPHICS_ON);
+  dmd.writePixel(x + 2, y + 3, GRAPHICS_ON);
+  dmd.writePixel(x + 1, y + 5, GRAPHICS_ON);
+  dmd.writePixel(x + 2, y + 5, GRAPHICS_ON);
+  dmd.writePixel(x + 1, y + 6, GRAPHICS_ON);
+  dmd.writePixel(x + 2, y + 6, GRAPHICS_ON);
+}
+
+// Small label font: 3 wide × 5 tall.  Bit 2 = leftmost pixel.
+struct LabelGlyph { char ch; uint8_t rows[5]; };
+static const LabelGlyph LABEL_FONT[] = {
+  { 'P', { 0x7, 0x5, 0x7, 0x4, 0x4 } },  // Prototype
+  { 'r', { 0x0, 0x7, 0x4, 0x4, 0x4 } },
+  { 'o', { 0x0, 0x7, 0x5, 0x5, 0x7 } },
+  { 't', { 0x2, 0x7, 0x2, 0x2, 0x3 } },
+  { 'y', { 0x0, 0x5, 0x7, 0x1, 0x3 } },
+  { 'p', { 0x0, 0x7, 0x5, 0x7, 0x4 } },
+  { 'e', { 0x0, 0x7, 0x5, 0x6, 0x7 } },
+  { 'U', { 0x5, 0x5, 0x5, 0x5, 0x7 } },  // Urban Concept
+  { 'b', { 0x4, 0x4, 0x7, 0x5, 0x7 } },
+  { 'a', { 0x0, 0x7, 0x3, 0x5, 0x7 } },
+  { 'n', { 0x0, 0x7, 0x5, 0x5, 0x5 } },
+  { 'C', { 0x7, 0x5, 0x4, 0x5, 0x7 } },
+  { 'c', { 0x0, 0x7, 0x4, 0x4, 0x7 } },
+};
+static const int LABEL_FONT_COUNT = (int)(sizeof(LABEL_FONT) / sizeof(LABEL_FONT[0]));
+
+// Pixel width of a label string.
+// Between letters: 1 px gap.  Space character: 4 px gap (replaces letter + gap).
+static int labelPixelWidth(const String& text) {
+  int w = 0;
+  bool first = true;
+  for (int i = 0; i < (int)text.length(); i++) {
+    char c = text[i];
+    if (c == ' ') { w += 4; first = true; }
+    else          { if (!first) w += 1; w += 3; first = false; }
+  }
+  return w;
+}
+
+// Draw a label string with its top-left corner at (x, y).
+static void drawCustomLabel(const String& text, int x, int y) {
+  int cx = x;
+  bool first = true;
+  for (int i = 0; i < (int)text.length(); i++) {
+    char ch = text[i];
+    if (ch == ' ') { cx += 4; first = true; continue; }
+    if (!first) cx += 1;
+    first = false;
+    const LabelGlyph* g = nullptr;
+    for (int k = 0; k < LABEL_FONT_COUNT; k++)
+      if (LABEL_FONT[k].ch == ch) { g = &LABEL_FONT[k]; break; }
+    if (g) {
+      for (int row = 0; row < 5; row++) {
+        uint8_t bits = g->rows[row];
+        for (int col = 0; col < 3; col++)
+          dmd.writePixel(cx + col, y + row,
+                         (bits >> (2 - col)) & 1 ? GRAPHICS_ON : GRAPHICS_OFF);
+      }
+    }
+    cx += 3;
+  }
+}
+
+// Draw countdown string "HH:MM:SS" using the large digit font.
+// Display rows 0–4: label (caller draws separately).
+// Display rows 5–6: blank separator.
+// Display rows 7–15: time glyphs (9 rows tall).
+//
+// Horizontal layout (total 64 px):
+//   8px margin | D0(6) 1px | D1(6) | 4px colon | D2(6) 1px | D3(6) | 4px colon | D4(6) 1px | D5(6) | 9px margin
+static void drawCustomTime(const String& t) {
+  if ((int)t.length() < 8) return;
+  const int y = 7;
+  drawCustomDigit( 8, y, t[0]);   // hours tens
+  drawCustomDigit(15, y, t[1]);   // hours units
+  drawCustomColon(21, y);         // first ':'  (4-wide gap at x=21..24)
+  drawCustomDigit(25, y, t[3]);   // minutes tens
+  drawCustomDigit(32, y, t[4]);   // minutes units
+  drawCustomColon(38, y);         // second ':' (4-wide gap at x=38..41)
+  drawCustomDigit(42, y, t[6]);   // seconds tens
+  drawCustomDigit(49, y, t[7]);   // seconds units
+}
+
 #endif  // HAS_P10
 
 void displayMessage(const String& msg) {
 #ifdef HAS_P10
   p10Scrolling = false;
-  dmd.selectFont(SystemFont5x7);
+  dmd.selectFont(Arial14);
   int tw = dmd.stringWidth(msg.c_str());
   if (tw > P10_WIDTH) {          // too wide — scroll instead
     p10StartScroll(msg);
     return;
   }
   dmd.clearScreen(true);
-  dmd.drawString((P10_WIDTH - tw) / 2, 4,
+  // Arial14 is 14 px tall; centre vertically in 16-row panel → y=1
+  dmd.drawString((P10_WIDTH - tw) / 2, 1,
                  msg.c_str(), msg.length(), GRAPHICS_NORMAL);
 #else
   Serial.println("[DISPLAY] " + msg);
@@ -206,47 +341,25 @@ void displayCountdown(const String& timeStr, const String& sessionType) {
 #ifdef HAS_P10
   p10Scrolling = false;
   dmd.clearScreen(true);
-  dmd.selectFont(SystemFont5x7);
-  // Line 1 (y=1): session type, full name uppercased.
-  // Trim trailing chars if wider than display (unlikely for "PROTOTYPE", possible
-  // for "URBAN CONCEPT" — exact fit depends on font metrics; confirm with hardware).
-  String typeLine = sessionType;
-  //typeLine.toUpperCase();
-  int tw1 = dmd.stringWidth(typeLine.c_str());
-  while (tw1 > P10_WIDTH && typeLine.length() > 0) {
-    typeLine.remove(typeLine.length() - 1);
-    tw1 = dmd.stringWidth(typeLine.c_str());
-  }
-  dmd.drawString((P10_WIDTH - tw1) / 2, 1,
-                 typeLine.c_str(), typeLine.length(), GRAPHICS_NORMAL);
-  // Line 2 (y=9): countdown time, centred
-  int tw2 = dmd.stringWidth(timeStr.c_str());
-  dmd.drawString((P10_WIDTH - tw2) / 2, 9,
-                 timeStr.c_str(), timeStr.length(), GRAPHICS_NORMAL);
+  int lw = labelPixelWidth(sessionType);
+  int lx = (P10_WIDTH - lw) / 2;
+  drawCustomLabel(sessionType, lx, 0);
+  drawCustomTime(timeStr);
 #else
   Serial.println("[DISPLAY] " + sessionType + " | " + timeStr);
 #endif
 }
 
+// showTime=true  → label + "00:00:00" (LAST_START on-phase)
+// showTime=false → label only, time area blank (WARNING off-phase / LAST_START off-phase)
 void displayBlink(bool showTime, const String& sessionType) {
 #ifdef HAS_P10
   p10Scrolling = false;
   dmd.clearScreen(true);
-  dmd.selectFont(SystemFont5x7);
-  String typeLine = sessionType;
-  //typeLine.toUpperCase();
-  int tw1 = dmd.stringWidth(typeLine.c_str());
-  while (tw1 > P10_WIDTH && typeLine.length() > 0) {
-    typeLine.remove(typeLine.length() - 1);
-    tw1 = dmd.stringWidth(typeLine.c_str());
-  }
-  dmd.drawString((P10_WIDTH - tw1) / 2, 1,
-                 typeLine.c_str(), typeLine.length(), GRAPHICS_NORMAL);
-  if (showTime) {
-    const char* zeros = "00:00:00";
-    int tw2 = dmd.stringWidth(zeros);
-    dmd.drawString((P10_WIDTH - tw2) / 2, 9, zeros, 8, GRAPHICS_NORMAL);
-  }
+  int lw = labelPixelWidth(sessionType);
+  int lx = (P10_WIDTH - lw) / 2;
+  drawCustomLabel(sessionType, lx, 0);
+  if (showTime) drawCustomTime("00:00:00");
 #else
   Serial.println(showTime
     ? "[DISPLAY] " + sessionType + " | 00:00:00"
@@ -553,6 +666,33 @@ void handleGetTime() {
   server.send(200, "application/json", out);
 }
 
+// --- API: GET /api/peers ---
+// Returns a JSON array of discovered peer clocks on the local network.
+// Uses a 30-second cache to avoid blocking the main thread too often.
+void handleGetPeers() {
+  if (millis() - lastPeerScan > 30000 && !apMode && WiFi.status() == WL_CONNECTED) {
+    peerCount = 0;
+    int n = MDNS.queryService("raceclock", "tcp");
+    lastPeerScan = millis();
+    for (int i = 0; i < n; i++) {
+      if (MDNS.address(i) == WiFi.localIP()) continue;  // skip self
+      if (peerCount >= PEER_MAX) break;
+      peers[peerCount].hostname = MDNS.hostname(i) + ".local";
+      peers[peerCount].ip       = MDNS.address(i).toString();
+      peerCount++;
+    }
+  }
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < peerCount; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["hostname"] = peers[i].hostname;
+    o["ip"]       = peers[i].ip;
+  }
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
 // --- API: GET /api/settings ---
 void handleGetSettings() {
   JsonDocument doc;
@@ -561,6 +701,8 @@ void handleGetSettings() {
   doc["maxSessions"] = MAX_SESSIONS;
   doc["ntpSynced"]   = (timeStatus() == timeSet);
   doc["apMode"]      = apMode;
+  doc["hostname"]    = effectiveHostname;
+  doc["deviceNum"]   = deviceNum;
   String out;
   serializeJson(doc, out);
   server.send(200, "application/json", out);
@@ -901,6 +1043,51 @@ void performFilesystemUpdate() {
       break;
   }
 }
+// ── Peer device-number negotiation ──────────────────────────────────────────
+// Scans for other race clocks via mDNS and claims a unique device number.
+// Called once during setup() after WiFi connects, before the web server starts.
+// Populates the peers[] cache as a side-effect.
+void negotiateDeviceNumber() {
+  Serial.println("[Peers] Scanning…");
+  int n = MDNS.queryService("raceclock", "tcp");
+  lastPeerScan = millis();
+  bool taken[PEER_MAX + 2] = {};  // index = device number, true = in use
+  peerCount = 0;
+  for (int i = 0; i < n; i++) {
+    IPAddress peerIP = MDNS.address(i);
+    if (peerIP == WiFi.localIP()) continue;  // skip self
+    String h = MDNS.hostname(i);
+    // "raceclock" → 1, "raceclock2" → 2, "raceclock3" → 3, …
+    int num = 1;
+    if (h.startsWith("raceclock") && h.length() > 9) {
+      num = h.substring(9).toInt();
+      if (num < 2) num = 1;
+    }
+    if (num >= 1 && num <= PEER_MAX + 1) taken[num] = true;
+    if (peerCount < PEER_MAX) {
+      peers[peerCount].hostname = h + ".local";
+      peers[peerCount].ip       = peerIP.toString();
+      peerCount++;
+    }
+  }
+  if (!n) Serial.println("[Peers] None found.");
+
+  if (taken[deviceNum]) {
+    int prev = deviceNum;
+    for (int i = 1; i <= PEER_MAX + 1; i++) {
+      if (!taken[i]) { deviceNum = i; break; }
+    }
+    prefs.putInt("device_num", deviceNum);
+    effectiveHostname = (deviceNum == 1) ? String(BASE_HOSTNAME)
+                                         : String(BASE_HOSTNAME) + String(deviceNum);
+    Serial.printf("[Peers] Number %d taken — reassigned to %d (%s)\n",
+                  prev, deviceNum, effectiveHostname.c_str());
+  } else {
+    Serial.printf("[Peers] Claiming number %d (%s)\n",
+                  deviceNum, effectiveHostname.c_str());
+  }
+}
+
 // ── WiFi network list helpers ────────────────────────────────────────────────
 
 void saveWifiNetworks() {
@@ -1064,6 +1251,9 @@ void setup() {
   prefs.begin("semclock", false);
   currentTZName = prefs.getString("tz", "Europe/Warsaw");
   warnMinutes   = prefs.getInt("warn", 5);
+  deviceNum       = prefs.getInt("device_num", 1);
+  effectiveHostname = (deviceNum == 1) ? String(BASE_HOSTNAME)
+                                       : String(BASE_HOSTNAME) + String(deviceNum);
 
   // Restore cached POSIX rule so DST is correct before the network comes up.
   // applyTimezone() will overwrite this with a fresh fetch once WiFi connects.
@@ -1111,9 +1301,10 @@ void setup() {
   auto startAP = [&]() {
     apMode = true;
     WiFi.mode(WIFI_AP);
-    WiFi.softAP("RaceClock", "raceclock1");
-    displayScroll("AP:RaceClock pw:raceclock1");
-    Serial.println("AP mode — 192.168.4.1");
+    String apSsid = (deviceNum > 1) ? "RaceClock" + String(deviceNum) : "RaceClock";
+    WiFi.softAP(apSsid.c_str(), "raceclock1");
+    displayScroll("AP:" + apSsid + " pw:raceclock1");
+    Serial.println("AP mode — 192.168.4.1  SSID: " + apSsid);
   };
 
   if (wifiNetCount == 0) {
@@ -1121,12 +1312,11 @@ void setup() {
     startAP();
   } else {
     displayScroll("CONNECTING...");
-    WiFi.setHostname(hostname);
+    WiFi.setHostname(BASE_HOSTNAME);
     WiFi.mode(WIFI_STA);
     bool connected = false;
     for (int i = 0; i < wifiNetCount && !connected; i++) {
       Serial.printf("Trying network %d: %s\n", i, wifiNets[i].ssid.c_str());
-      WiFi.setHostname("SEMRaceClock");
       WiFi.begin(wifiNets[i].ssid.c_str(), wifiNets[i].pass.c_str());
       int attempts = 0;
       while (WiFi.status() != WL_CONNECTED && attempts < 20) {
@@ -1149,14 +1339,21 @@ void setup() {
       Serial.println("All WiFi networks failed — falling back to AP mode");
       startAP();
     } else {
-      if (MDNS.begin(hostname))
-        Serial.println("mDNS: http://" + String(hostname) + ".local");
+      // mDNS: start with the base name, negotiate a unique number, then rename if needed
+      MDNS.begin(BASE_HOSTNAME);
+      negotiateDeviceNumber();
+      if (deviceNum > 1)
+        mdns_hostname_set(effectiveHostname.c_str());
+      MDNS.addService("raceclock", "tcp", 80);
+      WiFi.setHostname(effectiveHostname.c_str());
+      Serial.println("mDNS: http://" + effectiveHostname + ".local");
+
       displayMessage("SYNC...");
       applyTimezone(currentTZName);
       waitForSync(10);
       if (timeStatus() != timeSet) displayMessage("NO TIME");
       else displayMessage(WiFi.localIP().toString());
-      Serial.println("Ready — http://" + String(hostname) + ".local");
+      Serial.println("Ready — http://" + effectiveHostname + ".local");
     }
   }
 
@@ -1164,7 +1361,7 @@ void setup() {
 
   // --- ArduinoOTA (firmware upload over WiFi from Arduino IDE) ---
   // Works in both STA and AP mode. Password prevents accidental flashing.
-  ArduinoOTA.setHostname(hostname);
+  ArduinoOTA.setHostname(effectiveHostname.c_str());
   // No password — Arduino IDE 2.x has no UI to enter one and silently fails.
   // Network isolation (private LAN) is the security boundary for OTA.
   // ElegantOTA (/update) still requires browser credentials.
@@ -1204,6 +1401,7 @@ void setup() {
   server.on("/api/wifi/remove",    HTTP_POST, handleWifiRemove);
   server.on("/api/wifi/move",      HTTP_POST, handleWifiMove);
   server.on("/api/wifi/restart",   HTTP_POST, handleWifiRestart);
+  server.on("/api/peers",          HTTP_GET,  handleGetPeers);
   server.on("/api/version",        HTTP_GET,  handleGetVersion);
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);

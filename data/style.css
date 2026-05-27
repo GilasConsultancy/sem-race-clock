@@ -1,25 +1,27 @@
 /* ─── Reset & Base ────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* background on html so it tiles behind the whole viewport without
+   triggering the min-height:100vh scrollbar quirk on Windows/Linux */
+html { background: #f0f0f0; }
+
 body {
-  font-family: Arial, sans-serif;
-  background: #f0f0f0;
+  font-family: Shell, Arial, sans-serif;
   color: #1a1a1a;
-  min-height: 100vh;
 }
 
 /* ─── Header ──────────────────────────────────────────── */
 header {
   background: #fff;
   border-bottom: 3px solid #FBCE07;
-  padding: 10px 14px;
+  padding: 0px;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 0px;
 }
-.logo-svg { height: 70px; width: auto; display: block; }
+.logo-svg { height: 80px; width: auto; display: block; }
 .header-title {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: bold;
   color: #DD1D21;
   letter-spacing: 2px;
@@ -204,6 +206,7 @@ button.danger:hover { background: #bb1418; }
   margin-bottom: 6px;
 }
 .time-now {
+  font-variant-numeric: tabular-nums;
   text-align: center;
   font-size: 34px;
   font-weight: bold;
@@ -335,54 +338,7 @@ button.danger:hover { background: #bb1418; }
   .form-actions button.secondary { margin: 0; }
 }
 
-/* ─── P10 LED display preview ──────────────────────────────── */
-.p10-panel {
-  background: #0a0a0a;
-  border: 2px solid #1e1e1e;
-  border-radius: 6px;
-  padding: 8px 14px;
-  min-height: 58px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  overflow: hidden;
-}
-.p10-line {
-  font-family: 'Courier New', Courier, monospace;
-  font-weight: bold;
-  letter-spacing: 3px;
-  white-space: nowrap;
-}
-.p10-big {
-  font-size: 20px;
-  color: #FF8800;
-  text-shadow: 0 0 8px rgba(255,136,0,0.65);
-}
-.p10-small {
-  font-size: 11px;
-  letter-spacing: 5px;
-  color: #994d00;
-  text-shadow: 0 0 4px rgba(153,77,0,0.5);
-}
-@keyframes p10blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-/* WARNING: 750 ms on / 250 ms off — asymmetric; only the time row blinks, type stays solid */
-@keyframes p10blink-warning {
-  0%, 74.9% { opacity: 1; }
-  75%, 100%  { opacity: 0; }
-}
-.p10-blink-500     { animation: p10blink         0.5s linear infinite; }
-.p10-blink-1000    { animation: p10blink         1s   linear infinite; }
-.p10-blink-warning { animation: p10blink-warning 1s   linear infinite; }
-@keyframes p10scroll {
-  0%   { margin-left: 110%; }
-  100% { margin-left: -110%; }
-}
-.p10-scroll { animation: p10scroll 5s linear infinite; }
+/* ─── P10 LED display preview — canvas, no CSS needed ──────── */
 
 /* ─── WiFi status ─────────────────────────────────────── */
 .wifi-status {
@@ -513,4 +469,25 @@ button.danger:hover { background: #bb1418; }
   color: #1a1a1a;
   margin-bottom: 16px;
   line-height: 1.5;
+}
+
+/* ─── Peer clock list ─────────────────────────────────── */
+.peer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+.peer-row:last-child { border-bottom: none; }
+.peer-hostname {
+  font-size: 14px;
+  font-weight: bold;
+  color: #1a1a1a;
+}
+.peer-ip {
+  font-size: 12px;
+  color: #aaa;
+  margin-top: 2px;
 }

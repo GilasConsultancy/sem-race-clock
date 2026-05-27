@@ -4,7 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Race Clock</title>
-  <link rel="stylesheet" href="/style.css">
+	  <link rel="preconnect" href="https://fonts.googleapis.com">
+	  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	  <link href="https://fonts.googleapis.com/css2?family=Bitcount+Single+Ink:wght@100..900&display=swap" rel="stylesheet">
+	  <link rel="preconnect" href="https://cdn.sem-app.com">
+	  <link href="https://cdn.sem-app.com/fonts/shell.css" rel="stylesheet">
+	  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
@@ -136,10 +141,8 @@
 
         <div class="card">
           <p class="section-title">Display</p>
-          <div class="p10-panel">
-            <div class="p10-line p10-small" id="p10Top"    style="display:none"></div>
-            <div class="p10-line p10-big"   id="p10Bottom">--</div>
-          </div>
+          <canvas id="p10Canvas" width="320" height="80"
+            style="display:block;width:100%;border-radius:4px"></canvas>
           <hr class="divider">
           <label>Override text</label>
           <input type="text" id="overrideInput" tabindex="6" placeholder="Override text">
@@ -205,6 +208,7 @@
                onkeydown="if(event.key==='Enter'||event.key===' '){toggleWifi();event.preventDefault();}">
             <span class="device-toggle-title">WiFi</span>
             <span class="device-toggle-right">
+              <span id="wifiPeerBadge" class="device-version-badge" style="display:none"></span>
               <span id="wifiBadge" class="device-version-badge"></span>
               <span id="wifiChevron" class="device-chevron">▾</span>
             </span>
@@ -212,6 +216,12 @@
 
           <div id="wifiBody" class="device-body" style="display:none">
             <div id="wifiStatus" class="wifi-status">Checking…</div>
+
+            <!-- Peer race clocks on the local network -->
+            <div id="wifiPeers" style="display:none;margin-top:14px">
+              <p class="device-subsection">OTHER RACE CLOCKS ON NETWORK</p>
+              <div id="wifiPeerList"></div>
+            </div>
 
             <!-- Saved network list -->
             <div id="wifiNetList" style="margin-top:12px"></div>
@@ -253,6 +263,14 @@
           </div>
 
           <div id="deviceBody" class="device-body" style="display:none">
+            <p class="device-subsection">Identity</p>
+            <p class="time-label">HOSTNAME</p>
+            <div class="time-now" id="deviceHostname" style="font-size:18px;letter-spacing:2px">—</div>
+            <p class="hint" style="text-align:center;margin-top:-4px">
+              Reachable at <span id="deviceHostnameUrl" style="color:#DD1D21">—</span>
+            </p>
+
+            <hr class="divider">
             <p class="device-subsection">Web Files</p>
             <label>Replace a file on the device</label>
             <input type="file" id="webFileInput" tabindex="21" accept=".html,.css">
@@ -336,6 +354,7 @@ let deviceOffset = 0;   // ms difference between device time and browser time
 window.onload = () => {
   loadAll();
   syncDeviceClock();
+  p10DrawCanvas();              // paint dark panel immediately, before first API response
   fetchDisplay();
   setInterval(updateClock,     1000);
   setInterval(syncDeviceClock, 60000);
@@ -348,6 +367,7 @@ async function loadAll() {
   await loadOverride();
   loadVersion();   // fire-and-forget; fills #fwVersion
   loadWifi();      // fire-and-forget; fills #wifiStatus
+  loadPeers();     // fire-and-forget; fills #wifiPeers
 }
 
 // ── Clock — synced to device time ──────────────────────
@@ -425,6 +445,14 @@ async function loadSettings() {
     document.getElementById('warnMinutes').value = settings.warnMinutes;
     if (settings.apMode) {
       document.getElementById('apBanner').style.display = 'block';
+    }
+    // Hostname / device identity
+    if (settings.hostname) {
+      const hn = settings.hostname;
+      const hnEl  = document.getElementById('deviceHostname');
+      const urlEl = document.getElementById('deviceHostnameUrl');
+      if (hnEl)  hnEl.textContent  = hn;
+      if (urlEl) urlEl.textContent = hn + '.local';
     }
     // Update settings badge with the selected location name (city part only)
     const badge = document.getElementById('settingsBadge');
@@ -636,7 +664,196 @@ async function clearAll() {
   if (result.ok) await loadSessions();
 }
 
-// ── P10 display preview ────────────────────────────────
+// ── P10 canvas display preview ─────────────────────────────────────────────
+
+// Panel geometry — must match firmware constants exactly
+const P10W = 64, P10H = 16, P10S = 5;   // LED cols, LED rows, canvas px per LED
+
+// Colour palette (amber LED look)
+const C_BG  = '#0a0600';   // inter-LED gap / surround
+const C_OFF = '#1a0d00';   // unlit LED
+const C_ON  = '#ff9000';   // lit LED
+
+// Approximate size for Arial14 on hardware: 14 px in 16-row panel ≈ 78 %
+const MSG_FONT = `bold ${Math.round(P10H * P10S * 0.78)}px Arial, sans-serif`;
+
+// ── Digit bitmaps: 6 wide × 9 tall. Bit 5 = leftmost. ──────────────────────
+const DIGIT_BMP = [
+  [0x1E,0x3F,0x33,0x33,0x33,0x33,0x33,0x3F,0x1E], // 0
+  [0x1C,0x3C,0x2C,0x0C,0x0C,0x0C,0x0C,0x3F,0x3F], // 1
+  [0x1E,0x3F,0x33,0x03,0x06,0x0C,0x18,0x3F,0x3F], // 2
+  [0x1E,0x3F,0x33,0x0F,0x0F,0x03,0x33,0x3F,0x1E], // 3
+  [0x30,0x33,0x33,0x33,0x3F,0x3F,0x03,0x03,0x03], // 4
+  [0x3F,0x3F,0x30,0x3E,0x3F,0x03,0x33,0x3F,0x1E], // 5
+  [0x1E,0x3F,0x30,0x3E,0x3F,0x33,0x33,0x3F,0x1E], // 6
+  [0x3E,0x3E,0x06,0x06,0x0F,0x0F,0x06,0x06,0x06], // 7
+  [0x1E,0x3F,0x33,0x3F,0x3F,0x33,0x33,0x3F,0x1E], // 8
+  [0x1E,0x3F,0x33,0x33,0x3F,0x1F,0x03,0x3F,0x1E], // 9
+];
+
+// ── Label bitmaps: 3 wide × 5 tall. Bit 2 = leftmost. ──────────────────────
+const LABEL_BMP = {
+  P:[0x7,0x5,0x7,0x4,0x4], r:[0x0,0x7,0x4,0x4,0x4],
+  o:[0x0,0x7,0x5,0x5,0x7], t:[0x2,0x7,0x2,0x2,0x3],
+  y:[0x0,0x5,0x7,0x1,0x3], p:[0x0,0x7,0x5,0x7,0x4],
+  e:[0x0,0x7,0x5,0x6,0x7], U:[0x5,0x5,0x5,0x5,0x7],
+  b:[0x4,0x4,0x7,0x5,0x7], a:[0x0,0x7,0x3,0x5,0x7],
+  n:[0x0,0x7,0x5,0x5,0x5], C:[0x7,0x5,0x4,0x5,0x7],
+  c:[0x0,0x7,0x4,0x4,0x7],
+};
+
+// ── Virtual pixel buffer [row][col] ─────────────────────────────────────────
+const p10buf = Array.from({length: P10H}, () => new Uint8Array(P10W));
+function p10pxClear() { p10buf.forEach(r => r.fill(0)); }
+function p10pxSet(x, y, on) {
+  if (x >= 0 && x < P10W && y >= 0 && y < P10H) p10buf[y][x] = on ? 1 : 0;
+}
+function p10pxDigit(x, y, ch) {
+  const d = +ch;
+  if (d >= 0 && d <= 9)
+    DIGIT_BMP[d].forEach((bits, row) => {
+      for (let col = 0; col < 6; col++)
+        p10pxSet(x+col, y+row, (bits >> (5-col)) & 1);
+    });
+}
+function p10pxColon(x, y) {
+  [2,3,5,6].forEach(r => [1,2].forEach(c => p10pxSet(x+c, y+r, 1)));
+}
+function p10pxLabelWidth(text) {
+  let w = 0, first = true;
+  for (const ch of text) {
+    if (ch === ' ') { w += 4; first = true; }
+    else { if (!first) w += 1; w += 3; first = false; }
+  }
+  return w;
+}
+function p10pxLabel(text, x, y) {
+  let cx = x, first = true;
+  for (const ch of text) {
+    if (ch === ' ') { cx += 4; first = true; continue; }
+    if (!first) cx += 1; first = false;
+    const g = LABEL_BMP[ch];
+    if (g) g.forEach((bits, row) => {
+      for (let col = 0; col < 3; col++)
+        p10pxSet(cx+col, y+row, (bits >> (2-col)) & 1);
+    });
+    cx += 3;
+  }
+}
+function p10pxTime(t) {
+  if (t.length < 8) return;
+  const y = 7;
+  p10pxDigit( 8,y,t[0]); p10pxDigit(15,y,t[1]);
+  p10pxColon(21,y);
+  p10pxDigit(25,y,t[3]); p10pxDigit(32,y,t[4]);
+  p10pxColon(38,y);
+  p10pxDigit(42,y,t[6]); p10pxDigit(49,y,t[7]);
+}
+
+// ── Display state ───────────────────────────────────────────────────────────
+let p10Data    = { state: null, line1: '', line2: '', blinkMs: 0 };
+let p10BlinkOn = true;
+let p10BlinkTmo = null;
+let p10ScrollTx  = '';   // text currently scrolling ('' = not scrolling)
+let p10ScrollX   = 0;   // canvas-px offset of text left edge
+let p10ScrollRaf = null;
+let p10ScrollTs  = 0;
+
+// ── Blink ───────────────────────────────────────────────────────────────────
+function p10StopBlink() {
+  clearTimeout(p10BlinkTmo); p10BlinkTmo = null; p10BlinkOn = true;
+}
+function p10StartBlink(blinkMs) {
+  p10StopBlink();
+  const onMs = blinkMs === 750 ? 750 : 500;
+  const offMs = blinkMs === 750 ? 250 : 500;
+  const tick = () => {
+    p10BlinkOn = !p10BlinkOn;
+    p10DrawCanvas();
+    p10BlinkTmo = setTimeout(tick, p10BlinkOn ? onMs : offMs);
+  };
+  p10BlinkTmo = setTimeout(tick, onMs);
+}
+
+// ── Scroll ──────────────────────────────────────────────────────────────────
+function p10StopScroll() {
+  cancelAnimationFrame(p10ScrollRaf); p10ScrollRaf = null; p10ScrollTx = '';
+}
+function p10StartScroll(text) {
+  if (p10ScrollTx === text) return;       // already scrolling same text
+  p10ScrollTx  = text;
+  p10ScrollX   = P10W * P10S;             // start just off the right edge
+  p10ScrollTs  = 0;
+  cancelAnimationFrame(p10ScrollRaf);
+  p10ScrollRaf = requestAnimationFrame(p10animScroll);
+}
+function p10animScroll(ts) {
+  if (!p10ScrollTx) return;
+  if (p10ScrollTs === 0) p10ScrollTs = ts;
+  if (ts - p10ScrollTs >= 50) {           // 50 ms per step → 40 LED px/s (matches firmware)
+    p10ScrollTs = ts;
+    p10ScrollX -= P10S * 2;              // 2 LED px per step
+    p10DrawCanvas();
+  }
+  p10ScrollRaf = requestAnimationFrame(p10animScroll);
+}
+
+// ── Canvas paint ────────────────────────────────────────────────────────────
+function p10DrawCanvas() {
+  const canvas = document.getElementById('p10Canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const cw = canvas.width, ch = canvas.height;
+  const d  = p10Data;
+
+  // Panel background (inter-LED gap colour)
+  ctx.fillStyle = C_BG;
+  ctx.fillRect(0, 0, cw, ch);
+
+  if (d.line2) {
+    // ── Two-row countdown: pixel-perfect LED grid ─────────────────────────
+    p10pxClear();
+    const lw = p10pxLabelWidth(d.line1);
+    p10pxLabel(d.line1, Math.floor((P10W - lw) / 2), 0);
+    if (p10BlinkOn) p10pxTime(d.line2);
+
+    for (let row = 0; row < P10H; row++)
+      for (let col = 0; col < P10W; col++) {
+        ctx.fillStyle = p10buf[row][col] ? C_ON : C_OFF;
+        ctx.fillRect(col*P10S+1, row*P10S+1, P10S-1, P10S-1);
+      }
+
+  } else {
+    // ── Single-line message: dot-grid texture + bold canvas text ──────────
+    // Draw subtle off-LED grid so the panel always reads as a LED display
+    ctx.fillStyle = C_OFF;
+    for (let row = 0; row < P10H; row++)
+      for (let col = 0; col < P10W; col++)
+        ctx.fillRect(col*P10S+1, row*P10S+1, P10S-1, P10S-1);
+
+    const msg = d.line1 || '';
+    ctx.fillStyle    = C_ON;
+    ctx.font         = MSG_FONT;
+    ctx.textBaseline = 'middle';
+
+    if (p10ScrollTx) {
+      // Scrolling (text wider than panel, or override scroll flag)
+      const tw = ctx.measureText(msg).width;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, cw, ch); ctx.clip();
+      ctx.textAlign = 'left';
+      ctx.fillText(msg, p10ScrollX, ch / 2);
+      ctx.restore();
+      if (p10ScrollX + tw < 0) p10ScrollX = cw;   // loop
+    } else {
+      // Static, centred; maxWidth compresses text that's slightly too wide
+      ctx.textAlign = 'center';
+      ctx.fillText(msg, cw / 2, ch / 2, cw - P10S * 2);
+    }
+  }
+}
+
+// ── Called every second by fetchDisplay() ───────────────────────────────────
 async function fetchDisplay() {
   try {
     const r = await fetch('/api/display');
@@ -646,34 +863,31 @@ async function fetchDisplay() {
 }
 
 function renderP10(d) {
-  const top    = document.getElementById('p10Top');
-  const bottom = document.getElementById('p10Bottom');
+  const prev = p10Data;
+  p10Data = d;
 
-  // Override: show override text, scroll if flagged
-  if (d.state === 'OVERRIDE') {
-    top.style.display  = 'none';
-    bottom.textContent = d.line1 || '';
-    bottom.className   = ('p10-line p10-big' + (d.scroll ? ' p10-scroll' : '')).trim();
-    return;
-  }
-
-  // blinkMs=750 → WARNING (750 ms on / 250 ms off); blinkMs=1000 → LAST_START / TRACK_CLOSED
-  const blink = d.blinkMs === 750  ? 'p10-blink-warning' :
-                d.blinkMs === 1000 ? 'p10-blink-1000'   : '';
-
-  if (d.line2) {
-    // Two-row: type label (top, solid) + time (bottom, blinks when in WARNING / LAST_START)
-    // Type never blinks — it stays solid to anchor the display.
-    top.textContent  = d.line1 || '';
-    top.className    = 'p10-line p10-small';
-    top.style.display = '';
-    bottom.textContent = d.line2;
-    bottom.className   = ('p10-line p10-big ' + blink).trim();
+  // Scroll: start for any message text wider than the canvas; stop otherwise
+  if (!d.line2) {
+    const canvas = document.getElementById('p10Canvas');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.font = MSG_FONT;
+      const tw = ctx.measureText(d.line1 || '').width;
+      if (tw > canvas.width - P10S * 2) p10StartScroll(d.line1);
+      else                               p10StopScroll();
+    }
   } else {
-    top.style.display = 'none';
-    bottom.textContent = d.line1 || '';
-    bottom.className   = ('p10-line p10-big ' + blink).trim();
+    p10StopScroll();
   }
+
+  // Blink: restart only when blinkMs value changes (timer runs between fetches)
+  if (d.blinkMs > 0) {
+    if (d.blinkMs !== prev.blinkMs) p10StartBlink(d.blinkMs);
+  } else {
+    p10StopBlink();
+  }
+
+  p10DrawCanvas();
 }
 
 // ── SEM schedule import ─────────────────────────────────
@@ -945,6 +1159,71 @@ async function wifiRestart() {
   try {
     await fetch('/api/wifi/restart', { method: 'POST' });
   } catch(e) { /* device likely rebooted before response — that's fine */ }
+}
+
+// ── Peer race clocks ───────────────────────────────────
+async function loadPeers() {
+  try {
+    const r     = await fetch('/api/peers');
+    const peers = await r.json();
+    renderPeerList(peers);
+  } catch(e) { /* not critical — silently ignore */ }
+}
+
+function renderPeerList(peers) {
+  const section = document.getElementById('wifiPeers');
+  const list    = document.getElementById('wifiPeerList');
+  const badge   = document.getElementById('wifiPeerBadge');
+  if (!section || !list) return;
+
+  if (!peers || peers.length === 0) {
+    section.style.display = 'none';
+    if (badge) badge.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  if (badge) {
+    badge.textContent   = peers.length + ' peer' + (peers.length !== 1 ? 's' : '');
+    badge.style.display = '';
+  }
+
+  list.innerHTML = peers.map(p => `
+    <div class="peer-row">
+      <div>
+        <div class="peer-hostname">${escHtml(p.hostname)}</div>
+        <div class="peer-ip">${escHtml(p.ip)}</div>
+      </div>
+      <button class="btn-small btn-edit" onclick="syncFromPeer('${escHtml(p.ip)}')">Sync sessions</button>
+    </div>`).join('');
+}
+
+async function syncFromPeer(ip) {
+  try {
+    const r    = await fetch(`http://${ip}/api/sessions`);
+    const data = await r.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      alert('Peer has no sessions to copy.');
+      return;
+    }
+    if (!confirm(`Copy ${data.length} session(s) from ${ip}? This will replace all current sessions.`)) return;
+
+    // Clear existing sessions first
+    await fetch('/api/sessions/clear', { method: 'POST' });
+
+    // Post each session
+    for (let i = 0; i < data.length; i++) {
+      await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: -1, session: data[i] })
+      });
+    }
+    await loadSessions();
+    alert(`Synced ${data.length} session(s) from ${ip}.`);
+  } catch(e) {
+    alert('Could not reach peer: ' + e.message);
+  }
 }
 
 // ── Collapsible card toggles ───────────────────────────

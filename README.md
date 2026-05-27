@@ -64,10 +64,10 @@ The project includes `partitions.csv`, which overrides the default partition tab
 
 WiFi credentials are **not compiled into the firmware**. On first boot (or if no credentials are stored), the device starts an access point:
 
-- SSID: **`RaceClock`**
+- SSID: **`RaceClock`** (or `RaceClock2`, `RaceClock3`, … for additional devices)
 - Password: **`raceclock1`**
 
-Connect to that network, open **`http://192.168.4.1`**, and enter your WiFi details in the **WiFi** card. The device saves them to NVS (a separate flash partition), restarts, and joins your network. Credentials survive all future firmware and filesystem OTA updates.
+Connect to that network, open **`http://192.168.4.1`**, and enter your WiFi details in the **WiFi** card. The device saves them to NVS (a separate flash partition), restarts, and joins your network. Up to 10 networks can be stored; they are tried top-to-bottom on each boot. Credentials survive all future firmware and filesystem OTA updates.
 
 To switch networks (e.g. home → competition venue), just update the WiFi card in the web UI.
 
@@ -130,7 +130,7 @@ On power-up the device:
 3. Connects to the configured WiFi network (STA mode).
 4. If WiFi fails, starts a fallback access point: **SSID `RaceClock`, password `raceclock1`**. Connect your phone/laptop to that network and open `http://192.168.4.1`. Sessions can still be configured, but the clock will not show correct time until a network with internet access is available.
 5. Syncs time via NTP (ezTime, up to 10 s wait). On success the DS3231 is updated from NTP.
-6. Starts the web server on port 80 and registers as `raceclock.local` (mDNS).
+6. Scans for other race clocks via mDNS, negotiates a unique device number, and registers as `raceclock.local` (or `raceclock2.local`, etc.) on port 80.
 
 Open **`http://raceclock.local`** or the device's IP address to access the management UI.
 
@@ -195,6 +195,25 @@ Open it in any browser by double-clicking the file (or serving it locally). Use 
 
 ---
 
+## Multi-device setup
+
+Two (or more) devices can run side by side at the same event — e.g. one in each pit area — without any manual configuration.
+
+On boot, each device scans the local network for other race clocks via mDNS and automatically claims a unique device number:
+
+| Device number | Hostname | AP fallback SSID |
+|---|---|---|
+| 1 (first / only) | `raceclock.local` | `RaceClock` |
+| 2 | `raceclock2.local` | `RaceClock2` |
+| 3 | `raceclock3.local` | `RaceClock3` |
+| … | … | … |
+
+The number is stored in NVS and reused on subsequent boots. If a conflict is detected (another device already claimed the same number), the lower-priority device picks the next free number and saves it.
+
+In the web UI, the **WiFi** card shows a list of other race clocks discovered on the network. A **Sync sessions** button copies all sessions from a peer device, which is the easiest way to keep both clocks in step without entering the schedule twice.
+
+---
+
 ## API reference
 
 All endpoints return JSON.
@@ -203,7 +222,7 @@ All endpoints return JSON.
 |---|---|---|
 | `GET` | `/api/time` | `{ epoch, synced }` — UTC epoch + NTP status |
 | `GET` | `/api/display` | `{ state, line1, line2, blinkMs }` — current P10 content |
-| `GET` | `/api/settings` | `{ tz, warnMinutes, maxSessions, ntpSynced, apMode }` |
+| `GET` | `/api/settings` | `{ tz, warnMinutes, maxSessions, ntpSynced, apMode, hostname, deviceNum }` |
 | `POST` | `/api/settings` | `{ tz, warnMinutes }` — save settings |
 | `GET` | `/api/sessions` | Array of session objects |
 | `POST` | `/api/sessions` | `{ index, session }` — add (index -1) or edit |
@@ -213,6 +232,12 @@ All endpoints return JSON.
 | `POST` | `/api/override` | `{ text }` — set override (empty string clears) |
 | `GET` | `/api/sem/days` | `{ eventName, days[] }` — available days from SEM API |
 | `GET` | `/api/sem/sessions?date=YYYY-MM-DD` | Array of parsed sessions for that day |
+| `GET` | `/api/peers` | Array of `{ hostname, ip }` for other race clocks on the network |
+| `GET` | `/api/wifi` | `{ connected, ip, apMode, networks[] }` — WiFi status + saved networks |
+| `POST` | `/api/wifi/add` | `{ ssid, password }` — add or update a saved network |
+| `POST` | `/api/wifi/remove` | `{ index }` — remove a saved network |
+| `POST` | `/api/wifi/move` | `{ index, direction: "up"\|"down" }` — reorder saved networks |
+| `POST` | `/api/wifi/restart` | Restart to reconnect using saved network list |
 | `GET` | `/api/version` | `{ version }` — installed firmware version |
 | `GET` | `/api/checkupdate` | `{ current, latest, updateAvailable }` — compare vs GitHub |
 | `POST` | `/api/doupdate` | Trigger OTA from GitHub Releases (device reboots on success) |
@@ -244,18 +269,24 @@ LittleFS image, commits the version bump to `main`, and publishes a Release with
 
 ## P10 display layout
 
-The 64×16 px panel uses `SystemFont5x7` throughout. Long messages scroll automatically at 40 px/s. Countdown and blink states use a two-row layout:
+The 64×16 px panel uses two custom bitmap fonts rendered pixel-by-pixel via `dmd.writePixel()`:
+
+- **Large digit font** — 6 wide × 9 tall, used for the countdown time
+- **Small label font** — 3 wide × 5 tall, used for the session type label
+
+System messages (TRACK CLOSED, NO SESSION, CONNECTING…) use `Arial14` centred at y=1. Long messages scroll automatically at 40 px/s (2 LED px per 50 ms).
+
+Countdown and blink states use a two-row layout:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐  ← row 0
-│                          PROTO                                 │  ← y=1  (session type)
-│                                                                │
-│                         01:23:45                               │  ← y=9  (countdown)
-│                                                                │
+│                      Prototype                                 │  ← rows 0–4  (3×5 label, centred)
+│                                                                │  ← rows 5–6  (blank separator)
+│                       01:23:45                                 │  ← rows 7–15 (6×9 digits)
 └────────────────────────────────────────────────────────────────┘  ← row 15
 ```
 
-Static single-line messages (TRACK CLOSED, NO SESSION, etc.) are centred vertically at y=4.
+Horizontal digit layout (total 64 px): 8 px margin | D0 D1 | 4 px colon | D2 D3 | 4 px colon | D4 D5 | 9 px margin.
 
 ---
 
