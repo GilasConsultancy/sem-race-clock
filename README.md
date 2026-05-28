@@ -44,10 +44,12 @@ SEM_Time2LastStart/
 ├── SEM_Time2LastStart.ino   # Firmware — all device logic
 ├── partitions.csv           # Custom partition table (1536 KB OTA slots, 960 KB LittleFS)
 ├── version.json             # Current firmware version (managed by CI)
-└── data/                    # LittleFS filesystem image
-    ├── index.html           # Web management UI (self-contained)
-    ├── style.css            # Shell-branded stylesheet
-    └── webonly.html         # Standalone full-screen display (laptop / TV)
+├── data/                    # LittleFS filesystem image
+│   ├── index.html           # Web management UI (self-contained)
+│   ├── style.css            # Shell-branded stylesheet
+│   └── webonly.html         # Standalone full-screen display (laptop / TV)
+└── tools/
+    └── mock_raceclock.py    # Python mock peer for development testing
 ```
 
 ---
@@ -169,6 +171,8 @@ The management interface is a single-page app served directly by the ESP32.
 - Times must satisfy `start < last start < end`. The firmware also rejects overlapping sessions.
 - **Import from official schedule** fetches the current event's session list from `results.sem-app.com` directly from the device.
 - Sessions are sorted by start time and persisted to NVS.
+- After any session change (save, delete, clear, or import), if peer clocks are known the UI offers to push the updated schedule to them immediately.
+- The session list refreshes automatically in the background every 8 seconds, so changes pushed by another clock appear without a manual reload.
 
 ### Settings card
 
@@ -180,6 +184,17 @@ The management interface is a single-page app served directly by the ESP32.
 ### Clock card
 
 Shows the current local event time, synced to the device's NTP clock. A small indicator below the clock shows whether NTP is synchronised.
+
+### WiFi card
+
+Divided into four sections:
+
+| Section | Description |
+|---|---|
+| **Connection** | Current WiFi status and IP address. |
+| **Peers** | Other race clocks discovered on the network. Refresh re-queries the device (results are cached for 30 s on the firmware side). **↑ Push sessions** appears when at least one peer is found — one click sends this device's full session list to all peers. |
+| **Networks** | Saved WiFi networks in priority order. Reorder with the arrow buttons; remove with the ✕ button. |
+| **Add network** | Add an SSID and password. The eye icon reveals/hides the password. |
 
 ### Firmware card
 
@@ -208,9 +223,9 @@ On boot, each device scans the local network for other race clocks via mDNS and 
 | 3 | `raceclock3.local` | `RaceClock3` |
 | … | … | … |
 
-The number is stored in NVS and reused on subsequent boots. If a conflict is detected (another device already claimed the same number), the lower-priority device picks the next free number and saves it.
+The device number is **not** persisted — it is negotiated fresh on every boot. This avoids stale-cache issues where a device could get stuck with the wrong number. If a conflict is detected (another device has already claimed the same number), the lower-priority device picks the next free number.
 
-In the web UI, the **WiFi** card shows a list of other race clocks discovered on the network. A **Sync sessions** button copies all sessions from a peer device, which is the easiest way to keep both clocks in step without entering the schedule twice.
+In the web UI, the **WiFi** card → **Peers** section lists other race clocks on the network. The **↑ Push sessions** button sends this device's full session list to all peers at once — the easiest way to keep multiple clocks in step without entering the schedule more than once. The peer receiving the push will see its session list update automatically within 8 seconds (background polling).
 
 ---
 
@@ -221,7 +236,7 @@ All endpoints return JSON.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/time` | `{ epoch, synced }` — UTC epoch + NTP status |
-| `GET` | `/api/display` | `{ state, line1, line2, blinkMs }` — current P10 content |
+| `GET` | `/api/display` | `{ state, line1, line2, blinkMs, scroll }` — current P10 content |
 | `GET` | `/api/settings` | `{ tz, warnMinutes, maxSessions, ntpSynced, apMode, hostname, deviceNum }` |
 | `POST` | `/api/settings` | `{ tz, warnMinutes }` — save settings |
 | `GET` | `/api/sessions` | Array of session objects |
@@ -241,7 +256,34 @@ All endpoints return JSON.
 | `POST` | `/api/wifi/restart` | Restart to reconnect using saved network list |
 | `GET` | `/api/version` | `{ version }` — installed firmware version |
 | `GET` | `/api/checkupdate` | `{ current, latest, updateAvailable }` — compare vs GitHub |
-| `POST` | `/api/doupdate` | Trigger OTA from GitHub Releases (device reboots on success) |
+| `POST` | `/api/doupdate` | Trigger firmware OTA from GitHub Releases (device reboots on success) |
+| `POST` | `/api/doupdatefs` | Trigger filesystem OTA from GitHub Releases (device reboots on success) |
+
+---
+
+## Development tools
+
+### `tools/mock_raceclock.py` — simulated peer clock
+
+Registers a second race clock on the local network via mDNS so you can test peer discovery and session sync without a second physical board.
+
+```bash
+python3 tools/mock_raceclock.py               # simulates raceclock2, port 8080
+sudo python3 tools/mock_raceclock.py          # port 80 (requires root)
+python3 tools/mock_raceclock.py --num 3       # simulate raceclock3 instead
+python3 tools/mock_raceclock.py --push        # push mock sessions → real board on startup
+python3 tools/mock_raceclock.py --push --push-delay 5   # wait 5 s before pushing
+```
+
+`zeroconf` is installed automatically into `tools/.venv` on the first run — no manual setup needed.
+
+**What it tests:**
+
+| Test | How |
+|---|---|
+| **Detection** | The real board discovers the mock via mDNS and shows it in the WiFi → Peers section. |
+| **Push in** | Click **↑ Push sessions** in the web UI. The mock validates each received session and prints a boxed PASS/FAIL summary. |
+| **Push out** | Run with `--push`. The mock discovers the real board and posts its sample sessions to it, printing a PASS/FAIL summary. |
 
 ---
 
