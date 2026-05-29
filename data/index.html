@@ -4,12 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Race Clock</title>
-	  <link rel="preconnect" href="https://fonts.googleapis.com">
-	  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	  <link href="https://fonts.googleapis.com/css2?family=Bitcount+Single+Ink:wght@100..900&display=swap" rel="stylesheet">
-	  <link rel="preconnect" href="https://cdn.sem-app.com">
-	  <link href="https://cdn.sem-app.com/fonts/shell.css" rel="stylesheet">
-	  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://cdn.sem-app.com">
+  <!-- Shell font loaded non-blocking: page renders immediately with Arial fallback
+       if the CDN is unreachable (AP mode, no internet).  The media="print" trick
+       fetches the stylesheet off the critical path; onload switches it to all. -->
+  <link rel="stylesheet" href="https://cdn.sem-app.com/fonts/shell.css"
+        media="print" onload="this.media='all'">
+  <noscript>
+    <link rel="stylesheet" href="https://cdn.sem-app.com/fonts/shell.css">
+  </noscript>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
