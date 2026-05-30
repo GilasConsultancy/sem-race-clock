@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <ElegantOTA.h>
@@ -111,6 +112,7 @@ enum ClockState {
 // --- Globals ---
 WebServer    server(80);
 WiFiServer   sseServer(81);    // SSE event stream on port 81
+DNSServer    dnsServer;        // captive portal — redirects all DNS to AP IP
 Preferences  prefs;
 Timezone     localTZ;
 
@@ -1575,6 +1577,7 @@ void setup() {
     apMode = true;
     WiFi.mode(WIFI_AP);
     WiFi.softAP(ownApSsid.c_str(), "raceclock1");
+    dnsServer.start(53, "*", WiFi.softAPIP());  // captive portal: all DNS → us
     displayScroll("AP:" + ownApSsid + " pw:raceclock1");
     Serial.println("AP mode — 192.168.4.1  SSID: " + ownApSsid);
   };
@@ -1647,6 +1650,7 @@ void setup() {
     } else {
       // STA connected — also start our AP so unconfigured devices can find us
       WiFi.softAP(ownApSsid.c_str(), "raceclock1");
+      dnsServer.start(53, "*", WiFi.softAPIP());  // captive portal for AP clients
       Serial.println("Pairing AP started: " + ownApSsid + " (192.168.4.1)");
       // mDNS: start with the base name, negotiate a unique number, then rename if needed
       MDNS.begin(BASE_HOSTNAME);
@@ -1722,7 +1726,17 @@ void setup() {
     []() { server.send(200, "application/json", "{\"ok\":true}"); },
     handleFileUpload
   );
-  server.onNotFound([]() { server.send(404, "text/plain", "Not found."); });
+  server.onNotFound([]() {
+    // API paths get a proper 404
+    if (server.uri().startsWith("/api/")) {
+      server.send(404, "text/plain", "Not found."); return;
+    }
+    // Everything else — captive portal redirect to the management UI.
+    // Using a relative Location so it works regardless of which interface
+    // (192.168.4.1 AP or raceclock.local STA) the request arrived on.
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "");
+  });
 
   // --- ElegantOTA (browser-based firmware + filesystem upload at /update) ---
   ElegantOTA.begin(&server, "admin", "raceclock");
@@ -1733,6 +1747,7 @@ void setup() {
 // --- Loop ---
 void loop() {
   events();
+  dnsServer.processNextRequest();   // captive portal DNS
   server.handleClient();
   sseLoop();
   ArduinoOTA.handle();
