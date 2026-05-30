@@ -78,7 +78,9 @@ jobs:
       - name: Compile firmware
         run: |
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32:PartitionScheme=custom \
+            --fqbn esp32:esp32:esp32 \
+            --build-property build.partitions=partitions \
+            --build-property upload.maximum_size=1572864 \
             --output-dir build \
             SEM_Time2LastStart
 

@@ -448,9 +448,8 @@ String formatCountdown(int totalSeconds) {
 // --- Determine active session ---
 void updateActiveSession() {
   if (sessionCount == 0) { activeSession = -1; return; }
-  time_t now = localTZ.now();
-  struct tm* ti = localtime(&now);
-  int nowSecs = ti->tm_hour * 3600 + ti->tm_min * 60 + ti->tm_sec;
+  // Use ezTime's timezone-aware accessors — localtime() on ESP32 is always UTC
+  int nowSecs = localTZ.hour() * 3600 + localTZ.minute() * 60 + localTZ.second();
 
   activeSession = -1;
   for (int i = 0; i < sessionCount; i++) {
@@ -468,9 +467,8 @@ ClockState computeState(int& remainingSeconds) {
   if (activeSession < 0) { remainingSeconds = 0; return STATE_TRACK_CLOSED; }
 
   Session& s = sessions[activeSession];
-  time_t now = localTZ.now();
-  struct tm* ti = localtime(&now);
-  int nowSecs       = ti->tm_hour * 3600 + ti->tm_min * 60 + ti->tm_sec;
+  // Use ezTime's timezone-aware accessors — localtime() on ESP32 is always UTC
+  int nowSecs       = localTZ.hour() * 3600 + localTZ.minute() * 60 + localTZ.second();
   int startSecs     = s.startH * 3600 + s.startM * 60;
   int lastStartSecs = s.lastStartH * 3600 + s.lastStartM * 60;
   int endSecs       = s.endH * 3600 + s.endM * 60;
@@ -1582,10 +1580,6 @@ void setup() {
     Serial.println("AP mode — 192.168.4.1  SSID: " + ownApSsid);
   };
 
-  if (wifiNetCount == 0) {
-    Serial.println("No WiFi networks stored — starting AP mode");
-    startOwnAP();
-  } else {
     displayScroll("CONNECTING...");
     WiFi.setHostname(BASE_HOSTNAME);
     WiFi.mode(WIFI_AP_STA);   // AP_STA so we can run the pairing AP alongside STA
@@ -1668,7 +1662,6 @@ void setup() {
       else displayMessage(WiFi.localIP().toString());
       Serial.println("Ready — http://" + effectiveHostname + ".local");
     }
-  }
 
   updateActiveSession();
 
@@ -1696,6 +1689,7 @@ void setup() {
 
   // Routes
   server.on("/",                   HTTP_GET,  []() { serveFile("/index.html", "text/html"); });
+  server.on("/tv",                 HTTP_GET,  []() { serveFile("/webonly.html", "text/html"); });
   server.on("/style.css",          HTTP_GET,  []() { serveFile("/style.css",  "text/css");  });
   server.on("/api/settings",       HTTP_GET,  handleGetSettings);
   server.on("/api/settings",       HTTP_POST, handlePostSettings);
