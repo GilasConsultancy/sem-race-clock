@@ -33,7 +33,8 @@ Install these through the Arduino IDE Library Manager or board manager:
 | **ElegantOTA** (by Ayush Sharma) | Browser-based firmware + filesystem update at `/update` |
 | **HTTPUpdate** (built-in) | Self-OTA from GitHub Releases |
 | **RTClib** (Adafruit) | DS3231 real-time clock — enable with `#define HAS_RTC` |
-| **DMD2** (Freetronics) | P10 / HUB12 display driver — enable with `#define HAS_P10` |
+| **Adafruit BusIO** | Required by RTClib |
+| **DMD32** (vendored) | P10 / HUB12 display driver — in `src/DMD32/`, no install needed |
 
 ---
 
@@ -48,6 +49,11 @@ SEM_Time2LastStart/
 │   ├── index.html           # Web management UI (self-contained)
 │   ├── style.css            # Shell-branded stylesheet
 │   └── webonly.html         # Standalone full-screen display (laptop / TV)
+├── src/
+│   └── DMD32/               # ESP32-native P10/HUB12 driver (vendored, pins pre-configured)
+│       ├── DMD32.h
+│       ├── DMD32.cpp
+│       └── fonts/Arial14.h
 └── tools/
     └── mock_raceclock.py    # Python mock peer for development testing
 ```
@@ -112,14 +118,14 @@ The page polls every 3 seconds and shows a confirmation once the device is back 
 
 ### 6. Enable hardware features
 
-Near the top of `SEM_Time2LastStart.ino`, two feature flags are commented out by default so the sketch compiles without the optional libraries:
+Near the top of `SEM_Time2LastStart.ino` two feature flags control optional hardware:
 
 ```cpp
-// #define HAS_RTC   // uncomment when DS3231 is wired up + RTClib installed
-// #define HAS_P10   // uncomment when P10 panels are wired up + DMD2 installed
+#define HAS_RTC      // DS3231 real-time clock  (RTClib + Adafruit BusIO required)
+// #define HAS_P10   // P10 HUB12 LED panels    (DMD32 vendored in src/DMD32/)
 ```
 
-The status LEDs (GPIO25 / GPIO26) are always compiled in — no flag needed.
+`HAS_RTC` is enabled — the DS3231 is wired and working. `HAS_P10` is commented out pending panel arrival; uncomment it and flash once the panels are connected.
 
 ---
 
@@ -129,10 +135,11 @@ On power-up the device:
 
 1. Both LEDs flash briefly (self-test).
 2. If DS3231 is present and has a valid time, the clock starts immediately — no network required.
-3. Connects to the configured WiFi network (STA mode).
-4. If WiFi fails, starts a fallback access point: **SSID `RaceClock`, password `raceclock1`**. Connect your phone/laptop to that network and open `http://192.168.4.1`. Sessions can still be configured, but the clock will not show correct time until a network with internet access is available.
-5. Syncs time via NTP (ezTime, up to 10 s wait). On success the DS3231 is updated from NTP.
-6. Scans for other race clocks via mDNS, negotiates a unique device number, and registers as `raceclock.local` (or `raceclock2.local`, etc.) on port 80.
+3. Tries saved WiFi networks in priority order (STA+AP mode).
+4. **If WiFi connects:** also starts its own `RaceClock` soft AP alongside the main connection. The AP runs permanently so unconfigured devices can be provisioned (see [Zero-config provisioning](#zero-config-provisioning)). Joining the AP opens the web UI automatically via captive portal.
+5. **If all SSIDs fail:** scans for any `RaceClock*` AP from another clock. If found, joins it and announces itself for provisioning. If not found, starts its own `RaceClock` AP as a fallback — connect at `http://192.168.4.1` to add WiFi credentials.
+6. Syncs time via NTP (ezTime, up to 10 s wait). On success the DS3231 is updated from NTP.
+7. Scans for other race clocks via mDNS, negotiates a unique device number, and registers as `raceclock.local` (or `raceclock2.local`, etc.) on port 80.
 
 Open **`http://raceclock.local`** or the device's IP address to access the management UI.
 
@@ -172,7 +179,7 @@ The management interface is a single-page app served directly by the ESP32.
 - **Import from official schedule** fetches the current event's session list from `results.sem-app.com` directly from the device.
 - Sessions are sorted by start time and persisted to NVS.
 - After any session change (save, delete, clear, or import), if peer clocks are known the UI offers to push the updated schedule to them immediately.
-- The session list refreshes automatically in the background every 8 seconds, so changes pushed by another clock appear without a manual reload.
+- The session list refreshes instantly when another clock pushes changes (SSE), with a 30-second background poll as a fallback.
 
 ### Settings card
 
@@ -187,12 +194,13 @@ Shows the current local event time, synced to the device's NTP clock. A small in
 
 ### WiFi card
 
-Divided into four sections:
+Divided into sections:
 
 | Section | Description |
 |---|---|
 | **Connection** | Current WiFi status and IP address. |
-| **Peers** | Other race clocks discovered on the network. Refresh re-queries the device (results are cached for 30 s on the firmware side). **↑ Push sessions** appears when at least one peer is found — one click sends this device's full session list to all peers. |
+| **Unconfigured** | Devices that joined this clock's AP and are waiting to be configured. Only visible when at least one is present. Click **Adapt** to push all WiFi credentials, settings, and sessions to the device and restart it. |
+| **Peers** | Other race clocks on the main network (updated automatically via SSE). **↑ Push sessions** appears when at least one peer is found — one click sends this device's full session list to all peers. |
 | **Networks** | Saved WiFi networks in priority order. Reorder with the arrow buttons; remove with the ✕ button. |
 | **Add network** | Add an SSID and password. The eye icon reveals/hides the password. |
 
@@ -225,7 +233,20 @@ On boot, each device scans the local network for other race clocks via mDNS and 
 
 The device number is **not** persisted — it is negotiated fresh on every boot. This avoids stale-cache issues where a device could get stuck with the wrong number. If a conflict is detected (another device has already claimed the same number), the lower-priority device picks the next free number.
 
-In the web UI, the **WiFi** card → **Peers** section lists other race clocks on the network. The **↑ Push sessions** button sends this device's full session list to all peers at once — the easiest way to keep multiple clocks in step without entering the schedule more than once. The peer receiving the push will see its session list update automatically within 8 seconds (background polling).
+In the web UI, the **WiFi** card → **Peers** section lists other race clocks on the network. The **↑ Push sessions** button sends this device's full session list to all peers at once. The receiving device's web UI updates within seconds via SSE.
+
+---
+
+## Zero-config provisioning
+
+A second (or third) clock can be added at any time with no manual WiFi entry.
+
+1. Power on the new device — it tries its stored SSIDs, finds none, scans for any `RaceClock*` network, and joins the configured clock's AP.
+2. The new device announces itself. The configured clock's web UI shows it in the red **UNCONFIGURED** section of the WiFi card.
+3. Click **Adapt** — the configured clock pushes all WiFi credentials, timezone, warning threshold, and current sessions to the new device and triggers a restart.
+4. The new device reboots, joins the main WiFi, and appears in **Peers** automatically.
+
+The `RaceClock` AP stays on permanently alongside the main WiFi connection (WIFI_AP_STA mode). A captive portal (DNS redirect) opens the web UI automatically when any device or laptop joins the AP.
 
 ---
 
@@ -245,17 +266,19 @@ All endpoints return JSON.
 | `POST` | `/api/sessions/clear` | Remove all sessions |
 | `GET` | `/api/override` | `{ text }` — current override message |
 | `POST` | `/api/override` | `{ text }` — set override (empty string clears) |
-| `GET` | `/api/sem/days` | `{ eventName, days[] }` — available days from SEM API |
-| `GET` | `/api/sem/sessions?date=YYYY-MM-DD` | Array of parsed sessions for that day |
+| `GET` | `/api/sem/schedule` | `{ eventName, days[{date,day,sessions[]}] }` — full schedule in one fetch |
 | `GET` | `/api/peers` | Array of `{ hostname, ip, port }` for other race clocks on the network |
 | `POST` | `/api/peers/push` | Push this device's sessions to all known peers; returns `{ pushed, skipped }` |
+| `POST` | `/api/provision` | `{ hostname, ip }` — unconfigured device announces itself to the host |
+| `GET` | `/api/unpaired` | Array of `{ hostname, ip }` — devices waiting to be provisioned |
+| `POST` | `/api/adapt` | `{ ip }` — push full config to an unpaired device and restart it |
 | `GET` | `/api/wifi` | `{ connected, ip, apMode, networks[] }` — WiFi status + saved networks |
 | `POST` | `/api/wifi/add` | `{ ssid, password }` — add or update a saved network |
 | `POST` | `/api/wifi/remove` | `{ index }` — remove a saved network |
 | `POST` | `/api/wifi/move` | `{ index, direction: "up"\|"down" }` — reorder saved networks |
 | `POST` | `/api/wifi/restart` | Restart to reconnect using saved network list |
 | `GET` | `/api/version` | `{ version }` — installed firmware version |
-| SSE | `http://raceclock.local:81/` | Server-Sent Events stream — pushes `sessions_changed` and `override_changed` events; `: ping` comment every 15 s |
+| SSE | `http://raceclock.local:81/` | Server-Sent Events stream; events: `sessions_changed`, `override_changed`, `peers_changed`, `unpaired_changed`, `wifi_reconnected`, `ntp_synced`, `update_start`, `update_failed`; `: ping` every 15 s |
 | `GET` | `/api/checkupdate` | `{ current, latest, updateAvailable }` — compare vs GitHub |
 | `POST` | `/api/doupdate` | Trigger firmware OTA from GitHub Releases (device reboots on success) |
 | `POST` | `/api/doupdatefs` | Trigger filesystem OTA from GitHub Releases (device reboots on success) |
@@ -301,8 +324,8 @@ The git tag is the **only** thing you need to change. The workflow patches
 those changes back to `main` so the device OTA check can find the new version.
 
 ```bash
-git tag v0.4.2
-git push origin v0.4.2
+git tag v0.5.1
+git push origin v0.5.1
 ```
 
 That's it. GitHub Actions compiles the firmware, packages the web files into a
@@ -336,5 +359,5 @@ Horizontal digit layout (total 64 px): 8 px margin | D0 D1 | 4 px colon | D2 D3 
 
 ## Pending features
 
-- **P10 panels** — Firmware is ready and compiled in; waiting for hardware to arrive and be wired up.
+- **P10 panels** — DMD32 driver integrated and compiles clean; `#define HAS_P10` is ready to enable when panels arrive.
 - **SEM import overlap rejection** — when a Prototype and Urban Concept session share the same time slot the second import is rejected by the overlap validator. Needs a fix to either relax the rule for different types or import both atomically.

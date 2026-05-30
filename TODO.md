@@ -6,7 +6,7 @@ Items are grouped by milestone. Check off items as they are completed.
 
 ## Now — DS3231 RTC (wired and enabled)
 
-- [x] Install **RTClib** (by Adafruit) via Arduino IDE Library Manager
+- [x] Install **RTClib** (by Adafruit) + **Adafruit BusIO** via Arduino IDE Library Manager
 - [x] Wire DS3231 module: SDA → D21, SCL → D22, VCC → 3V3, GND → GND
 - [x] Ensure CR2032 battery is installed in the DS3231 module
 - [x] Uncomment `#define HAS_RTC` in firmware
@@ -22,15 +22,8 @@ Items are grouped by milestone. Check off items as they are completed.
 
 ## Next — P10 HUB12 LED Panels (firmware ready, hardware pending)
 
-- [ ] **Replace DMD2 with an ESP32-native P10 driver** — DMD2 v0.0.3 (Freetronics)
-  does not compile on ESP32: it omits `#include <Arduino.h>` in its `.cpp` files
-  and uses AVR Timer2 interrupts that don't exist on ESP32.  Patching the headers
-  alone is not sufficient.  Plan: write a minimal driver class in `src/P10Display`
-  using hardware SPI + a FreeRTOS task (pinned to core 0) for the scan loop.
-  The driver only needs: `begin()`, `clearScreen()`, `setPixel()`, `drawString()`,
-  `selectFont()`, `stringWidth()` — everything our firmware actually calls.
-  **Do not attempt without hardware present for testing.**
-- [ ] Once driver compiles: uncomment `#define HAS_P10` and flash
+- [x] Vendor DMD32 (ESP32-native fork of DMD) in `src/DMD32/` — compiles clean
+- [x] Uncomment `#define HAS_P10` — ready but commented until panels arrive
 - [ ] Wire both panels (2 × 32×16, daisy-chained):
 
   | Signal | ESP32 pin | HUB12 pin |
@@ -47,6 +40,7 @@ Items are grouped by milestone. Check off items as they are completed.
   Power: USB 5V 2A+ charger → ESP32 USB-C. VIN carries the raw 5V to the panels.
   Daisy-chain: OUTPUT of panel 1 → INPUT of panel 2 via included ribbon cable.
 
+- [ ] Uncomment `#define HAS_P10` and flash
 - [ ] Verify startup scroll "CONNECTING..." is visible
 - [ ] Verify two-row countdown layout: type label on top, time on bottom
 - [ ] Verify blink timing (WARNING: 750 ms on / 250 ms off; LAST START: 1 s)
@@ -59,14 +53,9 @@ Items are grouped by milestone. Check off items as they are completed.
 
 - [ ] **Visual hierarchy** — both rows render at the same font size. A smaller
   type label would de-emphasise the session name. Defer until hardware present.
-- [ ] **Smaller font for label row** — a 3×5 font fits "URBAN CONCEPT" (52 px)
-  without trimming and would also fix the overflow issue.
-  `github.com/filmote/Font3x5` exists but needs conversion to DMD2 format:
-  1. Verify bit ordering in `Font3x5.cpp` (bit 0 = top or bottom?)
-  2. Add DMD2 header `[width, height, firstChar, lastChar]`
-  3. Adjust bit order per byte if needed
-  4. Drop in as `fonts/Font3x5_DMD2.h`, use for label row only
-  **Do not attempt blind — test on hardware.**
+- [ ] **Smaller font for label row** — a 3×5 font would fit "URBAN CONCEPT" (52 px)
+  without trimming and fix the overflow issue. Needs conversion to DMD32 format
+  and on-hardware testing. **Do not attempt blind.**
 
 ---
 
@@ -78,7 +67,9 @@ Items are grouped by milestone. Check off items as they are completed.
 - [ ] Pre-load the full day's session schedule via **Import from official schedule**
   or by pushing from one clock to the other
 - [ ] Confirm DS3231 battery is charged and time is correct after NTP sync
-- [ ] If running two clocks: verify peer discovery and session push works on venue network
+- [ ] If running two clocks: power on second device near first — it finds the
+  `RaceClock` AP automatically and appears in the **UNCONFIGURED** section;
+  click **Adapt** to provision it with one tap
 
 ---
 
@@ -115,17 +106,16 @@ Items are grouped by milestone. Check off items as they are completed.
 - [x] WiFi credential management via web UI — NVS-stored, add/remove/reorder, up to 10 networks
 - [x] Multi-device peer discovery — mDNS scan, auto device number negotiation, no NVS persistence
 - [x] Session push to peers — `POST /api/peers/push`; firmware does server-to-server HTTP
-- [x] Auto-refresh sessions in web UI when pushed by peer (8 s background polling)
-- [x] WiFi card redesign — CONNECTION / PEERS / NETWORKS / ADD NETWORK subheaders
+- [x] WiFi card redesign — CONNECTION / UNCONFIGURED / PEERS / NETWORKS / ADD NETWORK
 - [x] Toast notifications — replaced all `alert()` with non-blocking slide-up toasts
 - [x] Non-blocking Shell font load — `media="print"` trick; page renders immediately in AP mode
 - [x] Mock peer tool — `tools/mock_raceclock.py` with push-in/push-out test modes
 - [x] Status LED logic (GPIO25/26) — compiled in but LEDs dropped from BOM
 - [x] DS3231 RTC — wired, library installed, `#define HAS_RTC` enabled
 - [x] P10 HUB12 display code — custom pixel fonts, layout, blink logic all written
-- [ ] P10 compilation — DMD2 incompatible with ESP32; needs custom driver (see above)
-- [x] P10 live display preview widget in web UI (`/api/display` + rendered panel canvas)
-- [x] ArduinoOTA — firmware upload over WiFi from Arduino IDE (password: `raceclock`)
+- [x] DMD32 ESP32-native P10 driver — vendored in `src/DMD32/`, pins pre-configured, compiles clean
+- [x] P10 live display preview widget in web UI — local state machine, no REST polling
+- [x] ArduinoOTA — firmware upload over WiFi from Arduino IDE
 - [x] ElegantOTA — browser-based firmware + filesystem upload at `/update` (admin / raceclock)
 - [x] GitHub Actions CI — automated firmware + LittleFS build and release on version tag
 - [x] WARNING blink asymmetric (750 ms on / 250 ms off); type line stays solid
@@ -133,5 +123,14 @@ Items are grouped by milestone. Check off items as they are completed.
 - [x] SEM import checks per-session POST results and reports exact ok/rejected counts
 - [x] SEM day picker auto-selects today (device time in event timezone via `en-CA` locale)
 - [x] SEM import panel auto-closes 2 s after fully-successful import
-- [x] Redundant `typeShort` alias removed from `handleGetDisplay`
-- [x] Tabindex on all interactive elements
+- [x] SEM schedule merged into single `GET /api/sem/schedule` — one external fetch, day selection client-side
+- [x] SSE real-time push notifications on port 81 — events: sessions_changed, override_changed,
+  peers_changed, unpaired_changed, wifi_reconnected, ntp_synced, update_start, update_failed
+- [x] Zero-config device provisioning — always-on AP (WIFI_AP_STA), unconfigured devices
+  appear in web UI, Adapt button pushes full config in one tap
+- [x] Captive portal — DNSServer redirects all DNS to AP IP; browser opens automatically
+- [x] Background peer scan in loop() — SSE notifies browser on peer list changes
+- [x] Initial page loads parallelised with Promise.all
+- [x] Session poll reduced from 8 s to 30 s (SSE handles instant updates)
+- [x] Peers Refresh button removed — peer list kept current by SSE
+- [x] v0.5.0 released
