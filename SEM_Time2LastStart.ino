@@ -104,6 +104,7 @@ enum ClockState {
 
 // --- Globals ---
 WebServer    server(80);
+WiFiServer   sseServer(81);    // SSE event stream on port 81
 Preferences  prefs;
 Timezone     localTZ;
 
@@ -831,6 +832,56 @@ void handleGetSessions() {
   server.send(200, "application/json", out);
 }
 
+// ── Server-Sent Events (port 81) ─────────────────────────────────────────────
+// A separate WiFiServer so the connection can be held open indefinitely
+// without interfering with WebServer's request/response cycle on port 80.
+// One client at a time; browser EventSource reconnects automatically.
+
+static WiFiClient sseClient;
+static bool       sseActive   = false;
+static uint32_t   sseLastPing = 0;
+
+void sseBegin() { sseServer.begin(); }
+
+// Push a named event to the connected browser (fire-and-forget).
+void ssePush(const char* type) {
+  if (!sseActive) return;
+  if (!sseClient.connected()) { sseActive = false; sseClient.stop(); return; }
+  sseClient.print(String("data: {\"type\":\"") + type + "\"}\n\n");
+  sseLastPing = millis();
+}
+
+// Call from loop() — accepts new connections and sends heartbeats.
+void sseLoop() {
+  WiFiClient incoming = sseServer.accept();
+  if (incoming) {
+    if (sseActive) sseClient.stop();          // displace old connection
+    sseClient   = incoming;
+    sseActive   = true;
+    sseLastPing = millis();
+    // Send SSE response headers immediately.  We don't read the HTTP request
+    // — EventSource sends a simple GET with no body, so we can respond right
+    // away.  The browser validates the response via Content-Type.
+    sseClient.print(
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: text/event-stream\r\n"
+      "Cache-Control: no-cache\r\n"
+      "Connection: keep-alive\r\n"
+      "Access-Control-Allow-Origin: *\r\n"
+      "\r\n"
+    );
+    ssePush("connected");
+  }
+  if (sseActive && !sseClient.connected()) {  // drop dead connections
+    sseActive = false;
+    sseClient.stop();
+  }
+  if (sseActive && millis() - sseLastPing > 15000) {
+    sseClient.print(": ping\n\n");            // keepalive comment every 15 s
+    sseLastPing = millis();
+  }
+}
+
 // --- API: POST /api/sessions (add or edit) ---
 void handlePostSession() {
   JsonDocument doc;
@@ -886,6 +937,7 @@ void handlePostSession() {
   sortSessions();
   saveSessions();
   updateActiveSession();
+  ssePush("sessions_changed");
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -901,6 +953,7 @@ void handleDeleteSession() {
   sessionCount--;
   saveSessions();
   updateActiveSession();
+  ssePush("sessions_changed");
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -909,6 +962,7 @@ void handleClearSessions() {
   sessionCount = 0;
   activeSession = -1;
   saveSessions();
+  ssePush("sessions_changed");
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -929,6 +983,7 @@ void handlePostOverride() {
   overrideText = doc["text"].as<String>();
   overrideText.trim();
   overrideDirty = true;
+  ssePush("override_changed");
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -1520,12 +1575,14 @@ void setup() {
   // --- ElegantOTA (browser-based firmware + filesystem upload at /update) ---
   ElegantOTA.begin(&server, "admin", "raceclock");
   server.begin();
+  sseBegin();   // SSE event stream on port 81
 }
 
 // --- Loop ---
 void loop() {
   events();
   server.handleClient();
+  sseLoop();
   ArduinoOTA.handle();
   ElegantOTA.loop();
 

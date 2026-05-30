@@ -255,6 +255,7 @@ All endpoints return JSON.
 | `POST` | `/api/wifi/move` | `{ index, direction: "up"\|"down" }` — reorder saved networks |
 | `POST` | `/api/wifi/restart` | Restart to reconnect using saved network list |
 | `GET` | `/api/version` | `{ version }` — installed firmware version |
+| SSE | `http://raceclock.local:81/` | Server-Sent Events stream — pushes `sessions_changed` and `override_changed` events; `: ping` comment every 15 s |
 | `GET` | `/api/checkupdate` | `{ current, latest, updateAvailable }` — compare vs GitHub |
 | `POST` | `/api/doupdate` | Trigger firmware OTA from GitHub Releases (device reboots on success) |
 | `POST` | `/api/doupdatefs` | Trigger filesystem OTA from GitHub Releases (device reboots on success) |

@@ -404,7 +404,37 @@ async function loadAll() {
   loadVersion();   // fire-and-forget; fills #fwVersion
   loadWifi();      // fire-and-forget; fills #wifiStatus
   loadPeers();     // fire-and-forget; fills #wifiPeers
-  setInterval(_pollForExternalSessionChanges, 8000);
+  initSSE();       // real-time push notifications on port 81
+  setInterval(_pollForExternalSessionChanges, 8000);  // fallback if SSE is down
+}
+
+// ── Server-Sent Events ─────────────────────────────────────────────────────
+// The device pushes events on port 81 whenever sessions or override change.
+// EventSource reconnects automatically on drop — no manual retry logic needed.
+// The 8-second poll above remains as a safety net.
+let _sseSessionsDebounce = null;
+
+function initSSE() {
+  const url = `http://${location.hostname}:81/`;
+  const es  = new EventSource(url);
+
+  es.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'sessions_changed') {
+        // Debounce: a push sends one clear + N session POSTs in rapid succession;
+        // wait 300 ms after the last event before reloading.
+        clearTimeout(_sseSessionsDebounce);
+        _sseSessionsDebounce = setTimeout(() => {
+          if (document.getElementById('addForm').style.display === 'none')
+            loadSessions();
+        }, 300);
+      } else if (msg.type === 'override_changed') {
+        loadOverride();
+      }
+    } catch(_) {}
+  };
+  window._sse = es;   // keep reference so it's not GC'd
 }
 
 // ── Background session polling ─────────────────────────────────────────────
