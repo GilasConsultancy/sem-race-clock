@@ -24,7 +24,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
-#define HAS_P10   // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
+#define HAS_P10      // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
 //                   //   DATA → GPIO23 (MOSI)  CLK  → GPIO18 (SCK)
 //                   //   LATCH→ GPIO5  (SS)    OE   → GPIO4
 //                   //   A    → GPIO16         B    → GPIO17
@@ -184,18 +184,18 @@ void IRAM_ATTR p10ScanISR() { dmd.scanDisplayBySPI(); }
 // Font layout: size(2) fixedWidth(1) height(1) firstChar(1) charCount(1)
 //              charWidths[charCount]  then bitmap data.
 static int p10StringWidth(const char* str) {
+  const uint8_t* f = Arial_14;   // pointer avoids typeof(array[]) in pgm_read macros
   int w = 0;
-  uint16_t fsize = pgm_read_word(Arial_14);
-  uint8_t  fFirst = pgm_read_byte(Arial_14 + 4);
-  uint8_t  fCount = pgm_read_byte(Arial_14 + 5);
+  uint16_t fsize  = pgm_read_word(f);
+  uint8_t  fFirst = pgm_read_byte(f + 4);
+  uint8_t  fCount = pgm_read_byte(f + 5);
   for (; *str; str++) {
     uint8_t c = (uint8_t)*str;
     if (c < fFirst || c >= fFirst + fCount) continue;
-    if (fsize == 0) {                                    // fixed-width
-      w += pgm_read_byte(Arial_14 + 2);
-    } else {                                             // variable-width
-      w += pgm_read_byte(Arial_14 + 6 + (c - fFirst));
-    }
+    if (fsize == 0)                              // fixed-width
+      w += pgm_read_byte(f + 2);
+    else                                         // variable-width
+      w += pgm_read_byte(f + 6 + (c - fFirst));
   }
   return w;
 }
