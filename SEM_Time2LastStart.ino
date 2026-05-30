@@ -21,7 +21,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 // Each flag pulls in the required library and replaces the
 // Serial-only display stubs with real hardware calls.
 //
-// #define HAS_RTC   // DS3231 real-time clock  (needs: RTClib by Adafruit)
+#define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
 // #define HAS_P10   // P10 HUB12 LED panels    (needs: DMD2 by Freetronics)
