@@ -51,16 +51,8 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #ifdef HAS_P10
 #include <DMD2.h>
 #include <fonts/Arial14.h>       // system messages and scroll (TRACK CLOSED, etc.)
-// DMD2 ≥ 2.x removed these constants — define them if the installed version doesn't
-#ifndef GRAPHICS_NORMAL
-#  define GRAPHICS_NORMAL 0
-#endif
-#ifndef GRAPHICS_ON
-#  define GRAPHICS_ON  1
-#endif
-#ifndef GRAPHICS_OFF
-#  define GRAPHICS_OFF 0
-#endif
+// GRAPHICS_ON / GRAPHICS_OFF are DMDGraphicsMode enum values defined by DMD2.
+// GRAPHICS_NORMAL was removed in newer versions — GRAPHICS_ON is equivalent.
 #endif
 // ─────────────────────────────────────────────────────────────
 
@@ -203,8 +195,7 @@ void p10UpdateScroll() {
   dmd.clearScreen();
   dmd.selectFont(Arial14);
   // y=1: centres the 14-tall font in the 16-row panel
-  dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str(),
-                 p10ScrollText.length(), GRAPHICS_NORMAL);
+  dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str());
   int tw = dmd.stringWidth(p10ScrollText.c_str());
   p10ScrollX -= 2;
   if (p10ScrollX < -tw) p10ScrollX = P10_WIDTH;   // loop
@@ -341,8 +332,7 @@ void displayMessage(const String& msg) {
   }
   dmd.clearScreen();
   // Arial14 is 14 px tall; centre vertically in 16-row panel → y=1
-  dmd.drawString((P10_WIDTH - tw) / 2, 1,
-                 msg.c_str(), msg.length(), GRAPHICS_NORMAL);
+  dmd.drawString((P10_WIDTH - tw) / 2, 1, msg.c_str());
 #else
   Serial.println("[DISPLAY] " + msg);
 #endif
