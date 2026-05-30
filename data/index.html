@@ -595,13 +595,19 @@ async function saveSettings() {
   const result = await r.json();
   if (result.ok) {
     settings = { ...settings, tz, warnMinutes };
-    showStatus('settingsStatus', 'Settings saved.', false);
-    syncDeviceClock();
-    updateDisplay();
-    // Refresh badge
-    const sel = document.getElementById('tzPreset');
-    const badge = document.getElementById('settingsBadge');
-    if (badge) badge.textContent = sel.options[sel.selectedIndex].text.split(',')[0];
+    if (result.reboot) {
+      showStatus('settingsStatus', 'Timezone changed — device is rebooting…', false);
+      // Reconnect after reboot (allow ~8 s)
+      setTimeout(() => { showStatus('settingsStatus', 'Reloading…', false); location.reload(); }, 8000);
+    } else {
+      showStatus('settingsStatus', 'Settings saved.', false);
+      syncDeviceClock();
+      updateDisplay();
+      // Refresh badge
+      const sel = document.getElementById('tzPreset');
+      const badge = document.getElementById('settingsBadge');
+      if (badge) badge.textContent = sel.options[sel.selectedIndex].text.split(',')[0];
+    }
   } else {
     showStatus('settingsStatus', result.error || 'Failed.', true);
   }

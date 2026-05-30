@@ -913,15 +913,25 @@ void handlePostSettings() {
   if (newWarn < 1)  newWarn = 1;
   if (newWarn > 30) newWarn = 30;
 
-  displayMessage("SYNC...");
-  if (!applyTimezone(newTZ)) {
-    server.send(400, "application/json",
-      "{\"ok\":false,\"error\":\"Unknown timezone\"}");
+  bool tzChanged = (newTZ != currentTZName);
+
+  // Persist both values before anything else so they survive the reboot.
+  prefs.putString("tz", newTZ);
+  prefs.putInt("warn", newWarn);
+  currentTZName = newTZ;
+  warnMinutes   = newWarn;
+
+  if (tzChanged) {
+    // Timezone change has too many downstream effects (NTP resync, session
+    // comparison, display state).  Reboot cleanly so everything starts fresh.
+    server.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
+    displayMessage("REBOOT...");
+    delay(500);
+    ESP.restart();
     return;
   }
-  warnMinutes = newWarn;
-  prefs.putInt("warn", warnMinutes);
-  server.send(200, "application/json", "{\"ok\":true}");
+
+  server.send(200, "application/json", "{\"ok\":true,\"reboot\":false}");
 }
 
 // --- API: GET /api/sessions ---
