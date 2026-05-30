@@ -226,6 +226,17 @@
             <p class="device-subsection">CONNECTION</p>
             <div id="wifiStatus" class="wifi-status">Checking…</div>
 
+            <!-- Unconfigured devices waiting to be provisioned (hidden when empty) -->
+            <div id="unpairedSection" style="display:none">
+              <hr class="divider">
+              <p class="device-subsection" style="color:#DD1D21">UNCONFIGURED</p>
+              <p class="hint" style="margin-top:-4px">
+                These clocks joined your AP and are waiting to be configured.
+                Click <strong>Adapt</strong> to push your WiFi, settings, and sessions to them.
+              </p>
+              <div id="unpairedList"></div>
+            </div>
+
             <hr class="divider">
 
             <!-- Peer race clocks on the local network -->
@@ -399,6 +410,7 @@ async function loadAll() {
   loadVersion();   // fire-and-forget; fills #fwVersion
   loadWifi();      // fire-and-forget; fills #wifiStatus
   loadPeers();     // fire-and-forget; fills initial #wifiPeers (SSE keeps it current)
+  loadUnpaired();  // fire-and-forget; shows unconfigured devices if any present
   initSSE();       // real-time push notifications on port 81
   setInterval(_pollForExternalSessionChanges, 30000);  // 30 s fallback if SSE is down
 }
@@ -430,6 +442,9 @@ function initSSE() {
           break;
         case 'peers_changed':
           loadPeers();
+          break;
+        case 'unpaired_changed':
+          loadUnpaired();
           break;
         case 'wifi_reconnected':
           syncDeviceClock();   // refresh time offset now that device is back online
@@ -1404,6 +1419,54 @@ async function _executePush() {
 async function pushToAllPeers() {
   if (!await confirm('Push your sessions to all peers? This will replace their sessions.')) return;
   await _executePush();
+}
+
+// ── Zero-config provisioning ──────────────────────────────────────────────────
+async function loadUnpaired() {
+  try {
+    const r = await fetch('/api/unpaired');
+    renderUnpairedList(await r.json());
+  } catch(_) {}
+}
+
+function renderUnpairedList(devices) {
+  const section = document.getElementById('unpairedSection');
+  const list    = document.getElementById('unpairedList');
+  if (!section || !list) return;
+  if (!devices || devices.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  list.innerHTML = devices.map(d => `
+    <div class="peer-row">
+      <div>
+        <div class="peer-hostname">${escHtml(d.hostname)}</div>
+        <div class="peer-ip">${escHtml(d.ip)} — waiting for config</div>
+      </div>
+      <button class="btn-small btn-edit"
+              onclick="adaptDevice('${escHtml(d.ip)}', this)">Adapt</button>
+    </div>`).join('');
+}
+
+async function adaptDevice(ip, btn) {
+  if (!await confirm(
+    `Adapt ${ip}?\n\nThis will push your WiFi credentials, timezone, warning threshold, and current sessions to the device, then restart it.`
+  )) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Adapting…'; }
+  try {
+    const r = await fetch('/api/adapt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip })
+    });
+    const d = await r.json();
+    if (d.ok) showToast(`${ip} adapted — it will restart and join the network.`, 'ok', 5000);
+    else      showToast('Adapt failed: ' + (d.error || 'unknown'), 'error');
+  } catch(e) {
+    showToast('Adapt failed: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Adapt'; }
+  }
 }
 
 // Called after any local session change — prompts to push only when peers are known.

@@ -24,7 +24,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
-#define HAS_P10      // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
+// #define HAS_P10      // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
 //                   //   DATA → GPIO23 (MOSI)  CLK  → GPIO18 (SCK)
 //                   //   LATCH→ GPIO5  (SS)    OE   → GPIO4
 //                   //   A    → GPIO16         B    → GPIO17
@@ -91,6 +91,12 @@ struct PeerDevice { String hostname; String ip; uint16_t port; };
 static const int PEER_MAX = 9;
 static PeerDevice peers[PEER_MAX];
 static int        peerCount = 0;
+
+// --- Unpaired devices (connected to our AP, waiting to be provisioned) ---
+struct UnpairedDevice { String hostname; String ip; uint32_t seenAt; };
+static const int UNPAIRED_MAX = 4;
+static UnpairedDevice unpaired[UNPAIRED_MAX];
+static int            unpairedCount = 0;
 
 // --- Clock states ---
 enum ClockState {
@@ -753,6 +759,125 @@ void handlePeersPush() {
 
   server.send(200, "application/json",
     "{\"pushed\":" + String(pushed) + ",\"skipped\":" + String(skipped) + "}");
+}
+
+// ── Zero-config device provisioning ──────────────────────────────────────────
+// An unconfigured device joins this device's AP, announces itself via
+// POST /api/provision, and waits.  The operator clicks "Adapt" in the web UI
+// which calls POST /api/adapt — this device pushes full config to the new device.
+
+// POST /api/provision  { hostname, ip }  — called by the unconfigured device
+void handleProvision() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}"); return;
+  }
+  String hostname = doc["hostname"] | "raceclock";
+  String ip       = doc["ip"]       | "";
+  if (ip.isEmpty()) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"ip required\"}"); return;
+  }
+  // Update existing entry or add new one
+  for (int i = 0; i < unpairedCount; i++) {
+    if (unpaired[i].ip == ip) {
+      unpaired[i].hostname = hostname;
+      unpaired[i].seenAt   = millis();
+      server.send(200, "application/json", "{\"ok\":true}");
+      ssePush("unpaired_changed");
+      return;
+    }
+  }
+  if (unpairedCount < UNPAIRED_MAX) {
+    unpaired[unpairedCount] = { hostname, ip, millis() };
+    unpairedCount++;
+    ssePush("unpaired_changed");
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// GET /api/unpaired — returns list of unconfigured devices waiting to be adapted
+void handleGetUnpaired() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < unpairedCount; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["hostname"] = unpaired[i].hostname;
+    o["ip"]       = unpaired[i].ip;
+  }
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+// POST /api/adapt  { ip }  — push full config to an unpaired device then restart it
+void handleAdapt() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"Bad JSON\"}"); return;
+  }
+  String targetIp = doc["ip"] | "";
+  if (targetIp.isEmpty()) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"ip required\"}"); return;
+  }
+
+  WiFiClient client;
+  HTTPClient  http;
+  String base = "http://" + targetIp;
+
+  // 1. WiFi networks
+  for (int i = 0; i < wifiNetCount; i++) {
+    JsonDocument body;
+    body["ssid"]     = wifiNets[i].ssid;
+    body["password"] = wifiNets[i].pass;
+    String s; serializeJson(body, s);
+    http.begin(client, base + "/api/wifi/add");
+    http.addHeader("Content-Type", "application/json");
+    http.POST(s); http.end();
+  }
+
+  // 2. Settings (timezone + warn threshold)
+  { JsonDocument body;
+    body["tz"]          = currentTZName;
+    body["warnMinutes"] = warnMinutes;
+    String s; serializeJson(body, s);
+    http.begin(client, base + "/api/settings");
+    http.addHeader("Content-Type", "application/json");
+    http.POST(s); http.end();
+  }
+
+  // 3. Sessions
+  http.begin(client, base + "/api/sessions/clear");
+  http.addHeader("Content-Type", "application/json");
+  http.POST(""); http.end();
+  for (int i = 0; i < sessionCount; i++) {
+    JsonDocument body;
+    body["index"] = -1;
+    JsonObject s  = body["session"].to<JsonObject>();
+    s["type"]     = sessions[i].type;
+    char buf[6];
+    sprintf(buf, "%02d:%02d", sessions[i].startH,     sessions[i].startM);     s["start"]     = buf;
+    sprintf(buf, "%02d:%02d", sessions[i].lastStartH, sessions[i].lastStartM); s["lastStart"] = buf;
+    sprintf(buf, "%02d:%02d", sessions[i].endH,       sessions[i].endM);       s["end"]       = buf;
+    String bodyStr; serializeJson(body, bodyStr);
+    http.begin(client, base + "/api/sessions");
+    http.addHeader("Content-Type", "application/json");
+    http.POST(bodyStr); http.end();
+  }
+
+  // 4. Restart — device will reboot with new credentials and join main WiFi
+  http.begin(client, base + "/api/wifi/restart");
+  http.addHeader("Content-Type", "application/json");
+  http.POST(""); http.end();
+
+  // Remove from unpaired list
+  for (int i = 0; i < unpairedCount; i++) {
+    if (unpaired[i].ip == targetIp) {
+      for (int j = i; j < unpairedCount - 1; j++) unpaired[j] = unpaired[j+1];
+      unpairedCount--;
+      break;
+    }
+  }
+  ssePush("unpaired_changed");
+  server.send(200, "application/json", "{\"ok\":true}");
 }
 
 // --- API: GET /api/settings ---
@@ -1444,22 +1569,23 @@ void setup() {
 
   loadWifiNetworks();
 
-  auto startAP = [&]() {
+  // Helper: start our own AP (fallback when no main WiFi available)
+  String ownApSsid = (deviceNum > 1) ? "RaceClock" + String(deviceNum) : "RaceClock";
+  auto startOwnAP = [&]() {
     apMode = true;
     WiFi.mode(WIFI_AP);
-    String apSsid = (deviceNum > 1) ? "RaceClock" + String(deviceNum) : "RaceClock";
-    WiFi.softAP(apSsid.c_str(), "raceclock1");
-    displayScroll("AP:" + apSsid + " pw:raceclock1");
-    Serial.println("AP mode — 192.168.4.1  SSID: " + apSsid);
+    WiFi.softAP(ownApSsid.c_str(), "raceclock1");
+    displayScroll("AP:" + ownApSsid + " pw:raceclock1");
+    Serial.println("AP mode — 192.168.4.1  SSID: " + ownApSsid);
   };
 
   if (wifiNetCount == 0) {
     Serial.println("No WiFi networks stored — starting AP mode");
-    startAP();
+    startOwnAP();
   } else {
     displayScroll("CONNECTING...");
     WiFi.setHostname(BASE_HOSTNAME);
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_AP_STA);   // AP_STA so we can run the pairing AP alongside STA
     bool connected = false;
     for (int i = 0; i < wifiNetCount && !connected; i++) {
       Serial.printf("Trying network %d: %s\n", i, wifiNets[i].ssid.c_str());
@@ -1482,9 +1608,46 @@ void setup() {
       }
     }
     if (!connected) {
-      Serial.println("All WiFi networks failed — falling back to AP mode");
-      startAP();
+      // Before starting our own AP: scan for another raceclock acting as a host.
+      // If found, join it as a client and wait to be provisioned.
+      Serial.println("All WiFi networks failed — scanning for raceclock AP...");
+      displayScroll("SEEKING PEER...");
+      WiFi.mode(WIFI_STA);
+      int n = WiFi.scanNetworks();
+      String foundAP = "";
+      for (int i = 0; i < n; i++) {
+        if (WiFi.SSID(i).startsWith("RaceClock")) { foundAP = WiFi.SSID(i); break; }
+      }
+      if (foundAP.length() > 0) {
+        Serial.println("Found " + foundAP + " — joining for provisioning");
+        WiFi.begin(foundAP.c_str(), "raceclock1");
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+          delay(500); attempts++;
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+          // Announce to the host device (always at 192.168.4.1)
+          HTTPClient http; WiFiClient wc;
+          http.begin(wc, "http://192.168.4.1/api/provision");
+          http.addHeader("Content-Type", "application/json");
+          String body = "{\"hostname\":\"" + effectiveHostname +
+                        "\",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+          http.POST(body); http.end();
+          apMode = false;   // we are a client, not in own-AP mode
+          displayScroll("WAITING FOR CONFIG...");
+          Serial.println("Announced — waiting to be provisioned by host");
+          // Fall through to server.begin() / loop — host will push config
+        } else {
+          startOwnAP();     // couldn't connect to raceclock AP either
+        }
+      } else {
+        Serial.println("No raceclock AP found — starting own AP");
+        startOwnAP();
+      }
     } else {
+      // STA connected — also start our AP so unconfigured devices can find us
+      WiFi.softAP(ownApSsid.c_str(), "raceclock1");
+      Serial.println("Pairing AP started: " + ownApSsid + " (192.168.4.1)");
       // mDNS: start with the base name, negotiate a unique number, then rename if needed
       MDNS.begin(BASE_HOSTNAME);
       negotiateDeviceNumber();
@@ -1548,6 +1711,9 @@ void setup() {
   server.on("/api/wifi/restart",   HTTP_POST, handleWifiRestart);
   server.on("/api/peers",          HTTP_GET,  handleGetPeers);
   server.on("/api/peers/push",     HTTP_POST, handlePeersPush);
+  server.on("/api/provision",      HTTP_POST, handleProvision);
+  server.on("/api/unpaired",       HTTP_GET,  handleGetUnpaired);
+  server.on("/api/adapt",          HTTP_POST, handleAdapt);
   server.on("/api/version",        HTTP_GET,  handleGetVersion);
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);
@@ -1617,9 +1783,40 @@ void loop() {
     rtcSynced = true;
     rtc.adjust(DateTime((uint32_t)UTC.now()));
     Serial.println("RTC updated from NTP");
-    ssePush("ntp_synced");
   }
 #endif
+
+  // Re-announce to host if we are waiting for provisioning (joined a raceclock AP)
+  { static uint32_t lastAnnounce = 0;
+    static bool waitingProvision = false;
+    // Set on first loop after joining a raceclock AP in setup() (apMode=false, STA connected,
+    // but gateway is 192.168.4.1 which means we are on a soft-AP network, not the main LAN)
+    IPAddress gw = WiFi.gatewayIP();
+    bool onRaceclockAP = (!apMode && WiFi.status() == WL_CONNECTED && gw[0] == 192 && gw[3] == 1);
+    if (onRaceclockAP && millis() - lastAnnounce > 30000) {
+      lastAnnounce = millis();
+      HTTPClient http; WiFiClient wc;
+      http.begin(wc, "http://192.168.4.1/api/provision");
+      http.addHeader("Content-Type", "application/json");
+      String body = "{\"hostname\":\"" + effectiveHostname + "\",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+      http.POST(body); http.end();
+    }
+  }
+
+  // Expire unpaired devices that haven't re-announced in 2 minutes
+  { static uint32_t lastExpiry = 0;
+    if (millis() - lastExpiry > 15000) {
+      lastExpiry = millis();
+      int prev = unpairedCount;
+      for (int i = 0; i < unpairedCount; ) {
+        if (millis() - unpaired[i].seenAt > 120000) {
+          for (int j = i; j < unpairedCount - 1; j++) unpaired[j] = unpaired[j+1];
+          unpairedCount--;
+        } else { i++; }
+      }
+      if (unpairedCount != prev) ssePush("unpaired_changed");
+    }
+  }
 
   // Background peer scan — detects arrivals/departures and notifies browser via SSE.
   // Runs every 60 s; MDNS.queryService() blocks for ~2 s so we keep it infrequent.
