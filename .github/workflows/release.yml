@@ -78,7 +78,7 @@ jobs:
       - name: Compile firmware
         run: |
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32 \
+            --fqbn esp32:esp32:esp32:PartitionScheme=custom \
             --output-dir build \
             SEM_Time2LastStart
 
