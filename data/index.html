@@ -385,16 +385,16 @@
 let sessions     = [];
 let settings     = { tz: "Europe/Warsaw", warnMinutes: 5 };
 let deviceOffset = 0;   // ms difference between device time and browser time
+let overrideText = '';  // current override message ('' = none); kept in sync locally
 
 // ── Init ───────────────────────────────────────────────
 window.onload = () => {
   loadAll();
   syncDeviceClock();
   p10DrawCanvas();              // paint dark panel immediately, before first API response
-  fetchDisplay();
   setInterval(updateClock,     1000);
   setInterval(syncDeviceClock, 60000);
-  setInterval(fetchDisplay,    1000);
+  setInterval(updateDisplay,   1000);  // local state machine — no network
 };
 
 async function loadAll() {
@@ -539,6 +539,7 @@ async function saveSettings() {
     settings = { ...settings, tz, warnMinutes };
     showStatus('settingsStatus', 'Settings saved.', false);
     syncDeviceClock();
+    updateDisplay();
     // Refresh badge
     const sel = document.getElementById('tzPreset');
     const badge = document.getElementById('settingsBadge');
@@ -560,6 +561,7 @@ async function loadSessions() {
     sessions = await r.json();
     _lastKnownSessionsJson = JSON.stringify(sessions);
     renderSessions();
+    updateDisplay();
   } catch(e) {
     document.getElementById('sessionList').innerHTML =
       '<p style="color:#aaa;font-size:13px">No sessions loaded.</p>';
@@ -913,34 +915,83 @@ function p10DrawCanvas() {
   }
 }
 
-// ── Called every second by fetchDisplay() ───────────────────────────────────
-async function fetchDisplay() {
-  try {
-    const r = await fetch('/api/display');
-    const d = await r.json();
-    renderP10(d);
-  } catch(e) {}
+// ── Local display state machine ──────────────────────────────────────────────
+// Computes the display state entirely from in-memory data so the canvas
+// updates every second with no network calls.  Re-runs on any session,
+// override, or settings change via updateDisplay().
+
+function _t2s(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 3600 + m * 60;
+}
+
+function computeDisplayState() {
+  if (overrideText) {
+    return { line1: overrideText, line2: '', blinkMs: 0, scroll: true };
+  }
+  if (!sessions || sessions.length === 0) {
+    return { line1: 'NO SESSION', line2: '', blinkMs: 0, scroll: false };
+  }
+
+  const now     = new Date(Date.now() + deviceOffset);
+  const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  const sorted  = [...sessions].sort((a, b) => _t2s(a.start) - _t2s(b.start));
+  const firstStart = _t2s(sorted[0].start);
+  const lastEnd    = _t2s(sorted[sorted.length - 1].end);
+
+  if (nowSecs < firstStart)
+    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0,    scroll: false };
+  if (nowSecs >= lastEnd)
+    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 1000, scroll: false };
+
+  // Find active session
+  let active = null;
+  for (const s of sorted)
+    if (nowSecs >= _t2s(s.start) && nowSecs < _t2s(s.end)) { active = s; break; }
+
+  if (!active)
+    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0, scroll: false };
+
+  const remaining = _t2s(active.lastStart) - nowSecs;
+  const warnSecs  = (settings.warnMinutes || 5) * 60;
+
+  if (remaining < 0)
+    return { line1: active.type, line2: '00:00:00', blinkMs: 1000, scroll: false };
+
+  const h = Math.floor(remaining / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+  const timeStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+  if (remaining <= warnSecs)
+    return { line1: active.type, line2: timeStr, blinkMs: 750, scroll: false };
+
+  return { line1: active.type, line2: timeStr, blinkMs: 0, scroll: false };
+}
+
+function updateDisplay() {
+  renderP10(computeDisplayState());
 }
 
 function renderP10(d) {
   const prev = p10Data;
   p10Data = d;
 
-  // Scroll: start for any message text wider than the canvas; stop otherwise
+  // Scroll: start for message text wider than canvas; stop otherwise
   if (!d.line2) {
     const canvas = document.getElementById('p10Canvas');
     if (canvas) {
       const ctx = canvas.getContext('2d');
       ctx.font = MSG_FONT;
       const tw = ctx.measureText(d.line1 || '').width;
-      if (tw > canvas.width - P10S * 2) p10StartScroll(d.line1);
-      else                               p10StopScroll();
+      if (d.scroll || tw > canvas.width - P10S * 2) p10StartScroll(d.line1);
+      else                                           p10StopScroll();
     }
   } else {
     p10StopScroll();
   }
 
-  // Blink: restart only when blinkMs value changes (timer runs between fetches)
+  // Blink: restart only when blinkMs changes (timer keeps running between ticks)
   if (d.blinkMs > 0) {
     if (d.blinkMs !== prev.blinkMs) p10StartBlink(d.blinkMs);
   } else {
@@ -1055,8 +1106,10 @@ async function loadOverride() {
   try {
     const r = await fetch('/api/override');
     const d = await r.json();
-    document.getElementById('overrideInput').value = d.text || '';
-    if (d.text) showStatus('overrideStatus', 'Override active: "' + d.text + '"', false);
+    overrideText = d.text || '';
+    document.getElementById('overrideInput').value = overrideText;
+    if (overrideText) showStatus('overrideStatus', 'Override active: "' + overrideText + '"', false);
+    updateDisplay();
   } catch(e) {}
 }
 
@@ -1069,7 +1122,7 @@ async function setOverride() {
       body: JSON.stringify({ text })
     });
     const d = await r.json();
-    if (d.ok) showStatus('overrideStatus', 'Showing: "' + text + '"', false);
+    if (d.ok) { overrideText = text; updateDisplay(); showStatus('overrideStatus', 'Showing: "' + text + '"', false); }
     else      showStatus('overrideStatus', 'Failed.', true);
   } catch(e) { showStatus('overrideStatus', 'Error.', true); }
 }
@@ -1081,6 +1134,7 @@ async function clearOverride() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: '' })
     });
+    overrideText = ''; updateDisplay();
     showStatus('overrideStatus', 'Override cleared — clock resumed.', false);
   } catch(e) { showStatus('overrideStatus', 'Error.', true); }
 }
