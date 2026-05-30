@@ -53,7 +53,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 // DMD32 — ESP32-native fork of the DMD library, vendored in src/DMD32/
 // Pins are set in src/DMD32/DMD32.h.  Scanning is driven by a hardware timer.
 #include "src/DMD32/DMD32.h"
-#include "src/DMD32/fonts/Arial_14.h"
+#include "src/DMD32/fonts/Arial14.h"
 #endif
 // ─────────────────────────────────────────────────────────────
 
