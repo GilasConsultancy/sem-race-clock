@@ -231,12 +231,8 @@
             <!-- Peer race clocks on the local network -->
             <div class="wifi-section-header">
               <p class="device-subsection" style="margin-bottom:0">PEERS</p>
-              <div style="display:flex;gap:6px">
-                <button class="btn-small btn-edit" style="width:auto;padding:3px 10px;font-size:11px;margin:0"
-                        onclick="loadPeers()" title="Scan for other race clocks">↻ Refresh</button>
-                <button id="btnPushPeers" class="btn-small" style="width:auto;padding:3px 10px;font-size:11px;margin:0;display:none"
-                        onclick="pushToAllPeers()" title="Push my sessions to all peers">↑ Push sessions</button>
-              </div>
+              <button id="btnPushPeers" class="btn-small" style="width:auto;padding:3px 10px;font-size:11px;margin:0;display:none"
+                      onclick="pushToAllPeers()" title="Push my sessions to all peers">↑ Push sessions</button>
             </div>
             <div id="wifiPeers">
               <div id="wifiPeerList" class="wifi-peer-empty">Scanning…</div>
@@ -398,14 +394,13 @@ window.onload = () => {
 };
 
 async function loadAll() {
-  await loadSettings();
-  await loadSessions();
-  await loadOverride();
+  // Parallelise the three critical initial loads — no dependency between them
+  await Promise.all([loadSettings(), loadSessions(), loadOverride()]);
   loadVersion();   // fire-and-forget; fills #fwVersion
   loadWifi();      // fire-and-forget; fills #wifiStatus
-  loadPeers();     // fire-and-forget; fills #wifiPeers
+  loadPeers();     // fire-and-forget; fills initial #wifiPeers (SSE keeps it current)
   initSSE();       // real-time push notifications on port 81
-  setInterval(_pollForExternalSessionChanges, 8000);  // fallback if SSE is down
+  setInterval(_pollForExternalSessionChanges, 30000);  // 30 s fallback if SSE is down
 }
 
 // ── Server-Sent Events ─────────────────────────────────────────────────────
@@ -421,16 +416,34 @@ function initSSE() {
   es.onmessage = e => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'sessions_changed') {
-        // Debounce: a push sends one clear + N session POSTs in rapid succession;
-        // wait 300 ms after the last event before reloading.
-        clearTimeout(_sseSessionsDebounce);
-        _sseSessionsDebounce = setTimeout(() => {
-          if (document.getElementById('addForm').style.display === 'none')
-            loadSessions();
-        }, 300);
-      } else if (msg.type === 'override_changed') {
-        loadOverride();
+      switch (msg.type) {
+        case 'sessions_changed':
+          // Debounce: a push sends clear + N POSTs in rapid succession
+          clearTimeout(_sseSessionsDebounce);
+          _sseSessionsDebounce = setTimeout(() => {
+            if (document.getElementById('addForm').style.display === 'none')
+              loadSessions();
+          }, 300);
+          break;
+        case 'override_changed':
+          loadOverride();
+          break;
+        case 'peers_changed':
+          loadPeers();
+          break;
+        case 'wifi_reconnected':
+          syncDeviceClock();   // refresh time offset now that device is back online
+          loadWifi();
+          break;
+        case 'ntp_synced':
+          syncDeviceClock();   // pick up fresh epoch + update sync indicator
+          break;
+        case 'update_start':
+          showToast('Update downloading — device will reboot.', 'info', 6000);
+          break;
+        case 'update_failed':
+          showToast('Update failed — check the Firmware card.', 'error', 5000);
+          break;
       }
     } catch(_) {}
   };
@@ -1032,7 +1045,8 @@ function renderP10(d) {
 }
 
 // ── SEM schedule import ─────────────────────────────────
-let semSessions = [];
+let semSessions  = [];
+let semSchedule  = null;   // cached full schedule from /api/sem/schedule
 let semPanelOpen = false;
 
 function toggleSEMImport() {
@@ -1040,10 +1054,13 @@ function toggleSEMImport() {
   document.getElementById('semPanel').style.display = semPanelOpen ? 'block' : 'none';
   document.getElementById('semToggleBtn').textContent =
     semPanelOpen ? '↑ Hide schedule import' : '↓ Import from official schedule';
-  if (semPanelOpen) loadSEMDays();
+  if (semPanelOpen) loadSEMSchedule();
 }
 
-async function loadSEMDays() {
+// Single fetch — replaces the old /api/sem/days + /api/sem/sessions pair.
+// The external SEM API returns the full schedule in one call; day selection
+// is now done client-side from the cached response.
+async function loadSEMSchedule() {
   const loading = document.getElementById('semLoading');
   const info    = document.getElementById('semInfo');
   const err     = document.getElementById('semError');
@@ -1053,23 +1070,25 @@ async function loadSEMDays() {
   err.style.display     = 'none';
   preview.style.display = 'none';
   try {
-    const r = await fetch('/api/sem/days');
+    const r = await fetch('/api/sem/schedule');
     const d = await r.json();
     if (d.error) throw new Error(d.error);
+    semSchedule = d;
     document.getElementById('semEventName').textContent = d.eventName;
     const sel = document.getElementById('semDaySelect');
-    sel.innerHTML = d.days.map(day =>
-      `<option value="${day.date}">${day.day} (${day.count} session${day.count > 1 ? 's' : ''})</option>`
-    ).join('');
+    sel.innerHTML = d.days.map(day => {
+      const n = day.sessions.length;
+      return `<option value="${day.date}">${day.day} (${n} session${n !== 1 ? 's' : ''})</option>`;
+    }).join('');
     // Auto-select today in the event timezone
     try {
-      const now      = new Date(Date.now() + deviceOffset);
-      const todayStr = now.toLocaleDateString('en-CA', { timeZone: settings.tz }); // YYYY-MM-DD
+      const todayStr = new Date(Date.now() + deviceOffset)
+                         .toLocaleDateString('en-CA', { timeZone: settings.tz });
       if (d.days.some(day => day.date === todayStr)) sel.value = todayStr;
-    } catch(e) { /* keep first option */ }
+    } catch(_) { /* keep first option */ }
     loading.style.display = 'none';
     info.style.display    = 'block';
-    loadSEMSessions(); // auto-load the selected day
+    loadSEMSessions();   // render the auto-selected day
   } catch(e) {
     loading.style.display = 'none';
     err.textContent = 'Could not load schedule: ' + e.message;
@@ -1077,25 +1096,20 @@ async function loadSEMDays() {
   }
 }
 
-async function loadSEMSessions() {
+// Called on day-select change — no network, just filters the cached schedule.
+function loadSEMSessions() {
   const date    = document.getElementById('semDaySelect').value;
   const preview = document.getElementById('semPreview');
   const err     = document.getElementById('semError');
   preview.style.display = 'none';
   err.style.display     = 'none';
-  try {
-    const r = await fetch('/api/sem/sessions?date=' + date);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-    semSessions = d;
-    document.getElementById('semPreviewBody').innerHTML = d.map(s =>
-      `<tr><td>${s.type}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td></tr>`
-    ).join('');
-    preview.style.display = 'block';
-  } catch(e) {
-    err.textContent = 'Could not load sessions: ' + e.message;
-    err.style.display = 'block';
-  }
+  if (!semSchedule) return;
+  const day = semSchedule.days.find(d => d.date === date);
+  semSessions = day ? day.sessions : [];
+  document.getElementById('semPreviewBody').innerHTML = semSessions.map(s =>
+    `<tr><td>${s.type}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td></tr>`
+  ).join('');
+  preview.style.display = 'block';
 }
 
 async function importSEMSessions() {

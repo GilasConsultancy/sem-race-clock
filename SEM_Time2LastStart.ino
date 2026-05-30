@@ -615,8 +615,13 @@ bool isSEMTrackSession(const String& activity, const String& notes) {
          (activity.indexOf("Prototype") >= 0 || activity.indexOf("Urban Concept") >= 0);
 }
 
-// GET /api/sem/days — returns event name + list of days that have track sessions.
-void handleSEMDays() {
+// GET /api/sem/schedule — returns event name + all track-session days in one fetch.
+// Replaces the old /api/sem/days + /api/sem/sessions pair (which fetched the
+// external SEM API twice).  The browser selects the desired day client-side.
+//
+// Response: { eventName, days: [ { date, day, sessions: [{type,start,lastStart,end}] } ] }
+// Only days that contain at least one track session are included.
+void handleSEMSchedule() {
   if (apMode || WiFi.status() != WL_CONNECTED) {
     server.send(503, "application/json", "{\"error\":\"No internet — cannot reach SEM API\"}");
     return;
@@ -627,62 +632,38 @@ void handleSEMDays() {
     server.send(503, "application/json", "{\"error\":\"Could not fetch SEM schedule\"}");
     return;
   }
+
   JsonDocument out;
   out["eventName"] = eventName;
   JsonArray days = out["days"].to<JsonArray>();
-  for (JsonObject day : schDoc["data"].as<JsonArray>()) {
-    int count = 0;
-    for (JsonObject item : day["schedule"].as<JsonArray>())
-      if (isSEMTrackSession(item["activity"] | "", item["notes"] | "")) count++;
-    if (count > 0) {
-      JsonObject d = days.add<JsonObject>();
-      d["date"]  = day["date"];
-      d["day"]   = day["day"];
-      d["count"] = count;
-    }
-  }
-  String result; serializeJson(out, result);
-  server.send(200, "application/json", result);
-}
 
-// GET /api/sem/sessions?date=YYYY-MM-DD — returns parsed track sessions for one day.
-void handleSEMSessions() {
-  if (apMode || WiFi.status() != WL_CONNECTED) {
-    server.send(503, "application/json", "{\"error\":\"No internet — cannot reach SEM API\"}");
-    return;
-  }
-  String dateFilter = server.arg("date");
-  if (dateFilter.isEmpty()) {
-    server.send(400, "application/json", "{\"error\":\"date parameter required\"}");
-    return;
-  }
-  String eventName;
-  JsonDocument schDoc;
-  if (!fetchSEMSchedule(eventName, schDoc)) {
-    server.send(503, "application/json", "{\"error\":\"Could not fetch SEM schedule\"}");
-    return;
-  }
-  JsonDocument out;
-  JsonArray sessions = out.to<JsonArray>();
   for (JsonObject day : schDoc["data"].as<JsonArray>()) {
-    if (day["date"].as<String>() != dateFilter) continue;
+    // Collect track sessions for this day first
+    JsonDocument tmp;
+    JsonArray tmpSessions = tmp.to<JsonArray>();
     for (JsonObject item : day["schedule"].as<JsonArray>()) {
       String activity = item["activity"] | "";
       String notes    = item["notes"]    | "";
       if (!isSEMTrackSession(activity, notes)) continue;
       String type = (activity.indexOf("Prototype") >= 0) ? "Prototype" : "Urban Concept";
-      // Extract "HH:MM" after "Last Start: " (12 chars)
-      int lsIdx    = notes.indexOf("Last Start:") + 12;
+      int lsIdx        = notes.indexOf("Last Start:") + 12;
       String lastStart = notes.substring(lsIdx, lsIdx + 5);
       lastStart.trim();
-      JsonObject s  = sessions.add<JsonObject>();
+      JsonObject s  = tmpSessions.add<JsonObject>();
       s["type"]      = type;
       s["start"]     = item["timeStart"];
       s["lastStart"] = lastStart;
       s["end"]       = item["timeEnd"];
     }
-    break; // found the requested day
+    if (tmpSessions.size() == 0) continue;   // skip days with no track sessions
+
+    JsonObject d       = days.add<JsonObject>();
+    d["date"]          = day["date"];
+    d["day"]           = day["day"];
+    JsonArray outSess  = d["sessions"].to<JsonArray>();
+    for (JsonObject s : tmpSessions) outSess.add(s);
   }
+
   String result; serializeJson(out, result);
   server.send(200, "application/json", result);
 }
@@ -1116,6 +1097,7 @@ void performFirmwareUpdate() {
   String url = "https://github.com/" GITHUB_OWNER "/" GITHUB_REPO
                "/releases/download/v" + latest + "/firmware.bin";
   Serial.println("[OTA] Downloading: " + url);
+  ssePush("update_start");
 
 #ifdef HAS_P10
   displayMessage("OTA...");
@@ -1129,12 +1111,14 @@ void performFirmwareUpdate() {
   switch (ret) {
     case HTTP_UPDATE_OK:
       Serial.println("[OTA] Success — rebooting");
-      break;
+      break;                        // device reboots; update_done implicit
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("[OTA] No update available");
+      ssePush("update_failed");
       break;
     case HTTP_UPDATE_FAILED:
       Serial.println("[OTA] Failed: " + httpUpdate.getLastErrorString());
+      ssePush("update_failed");
       break;
   }
 }
@@ -1156,6 +1140,7 @@ void performFilesystemUpdate() {
   String url = "https://github.com/" GITHUB_OWNER "/" GITHUB_REPO
                "/releases/download/v" + latest + "/littlefs.bin";
   Serial.println("[FSOTA] Downloading: " + url);
+  ssePush("update_start");
 
 #ifdef HAS_P10
   displayMessage("FS OTA...");
@@ -1172,9 +1157,11 @@ void performFilesystemUpdate() {
       break;
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("[FSOTA] No update available");
+      ssePush("update_failed");
       break;
     case HTTP_UPDATE_FAILED:
       Serial.println("[FSOTA] Failed: " + httpUpdate.getLastErrorString());
+      ssePush("update_failed");
       break;
   }
 }
@@ -1551,8 +1538,7 @@ void setup() {
   server.on("/api/sessions/clear", HTTP_POST, handleClearSessions);
   server.on("/api/time",           HTTP_GET,  handleGetTime);
   server.on("/api/display",        HTTP_GET,  handleGetDisplay);
-  server.on("/api/sem/days",       HTTP_GET,  handleSEMDays);
-  server.on("/api/sem/sessions",   HTTP_GET,  handleSEMSessions);
+  server.on("/api/sem/schedule",   HTTP_GET,  handleSEMSchedule);
   server.on("/api/override",       HTTP_GET,  handleGetOverride);
   server.on("/api/override",       HTTP_POST, handlePostOverride);
   server.on("/api/wifi",           HTTP_GET,  handleGetWifi);
@@ -1610,11 +1596,19 @@ void loop() {
     } else if (!wifiWasConnected) {
       wifiWasConnected = true;
       Serial.println("Wi-Fi restored — triggering NTP sync");
+      ssePush("wifi_reconnected");
       updateNTP();
 #ifdef HAS_RTC
       rtcSynced = false;   // update RTC once NTP re-syncs
 #endif
     }
+  }
+
+  // Notify browser the moment NTP first achieves a lock (with or without RTC)
+  { static bool ntpWasSynced = false;
+    bool ntpNow = (timeStatus() == timeSet);
+    if (ntpNow && !ntpWasSynced) { ntpWasSynced = true; ssePush("ntp_synced"); }
+    if (!ntpNow)                    ntpWasSynced = false;   // reset on loss
   }
 
   // Write RTC once each time NTP achieves a fresh lock
@@ -1623,8 +1617,31 @@ void loop() {
     rtcSynced = true;
     rtc.adjust(DateTime((uint32_t)UTC.now()));
     Serial.println("RTC updated from NTP");
+    ssePush("ntp_synced");
   }
 #endif
+
+  // Background peer scan — detects arrivals/departures and notifies browser via SSE.
+  // Runs every 60 s; MDNS.queryService() blocks for ~2 s so we keep it infrequent.
+  { static uint32_t lastBgScan = 0;
+    if (!apMode && WiFi.status() == WL_CONNECTED && millis() - lastBgScan > 60000) {
+      lastBgScan = millis();
+      int prevCount = peerCount;
+      peerCount = 0;
+      int n = MDNS.queryService("raceclock", "tcp");
+      lastPeerScan = millis();
+      for (int i = 0; i < n; i++) {
+        IPAddress addr = resolveAddress(i);
+        if (addr == WiFi.localIP()) continue;
+        if (peerCount >= PEER_MAX) break;
+        peers[peerCount].hostname = MDNS.hostname(i) + ".local";
+        peers[peerCount].ip       = addr.toString();
+        peers[peerCount].port     = MDNS.port(i);
+        peerCount++;
+      }
+      if (peerCount != prevCount) ssePush("peers_changed");
+    }
+  }
 
   // Re-evaluate active session periodically
   static unsigned long lastSessionCheck = 0;
