@@ -24,9 +24,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
-// #define HAS_P10   // P10 HUB12 LED panels — DMD2 is AVR/esp8266 only and does
-//                   // not compile on ESP32 (missing Arduino.h, AVR timers).
-//                   // Replace with an ESP32-native driver when panels arrive.
+// #define HAS_P10   // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
 //                   //   DATA → GPIO23 (MOSI)  CLK  → GPIO18 (SCK)
 //                   //   LATCH→ GPIO5  (SS)    OE   → GPIO4
 //                   //   A    → GPIO16         B    → GPIO17
@@ -36,13 +34,14 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define LED_RED    25
 #define LED_GREEN  26
 
-// P10 control pins (only used when HAS_P10 is defined)
+// P10 control pins — documented here for reference; actual values live in
+// src/DMD32/DMD32.h (vendored) so the library and firmware stay in sync.
 #define P10_PANELS_WIDE  2
 #define P10_PANELS_TALL  1
 #define P10_PIN_OE       4   // Output-enable, active low
 #define P10_PIN_A        16  // Row-select A
 #define P10_PIN_B        17  // Row-select B
-#define P10_PIN_SCK      18  // SPI clock (required by DMD2 ≥ 2.x constructor)
+#define P10_PIN_LATCH    5   // Shift-register latch (VSPI SS)
 #define P10_WIDTH       (P10_PANELS_WIDE * 32)  // 64 px — always available
 
 #ifdef HAS_RTC
@@ -51,10 +50,10 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #endif
 
 #ifdef HAS_P10
-#include <DMD2.h>
-#include <fonts/Arial14.h>       // system messages and scroll (TRACK CLOSED, etc.)
-// GRAPHICS_ON / GRAPHICS_OFF are DMDGraphicsMode enum values defined by DMD2.
-// GRAPHICS_NORMAL was removed in newer versions — GRAPHICS_ON is equivalent.
+// DMD32 — ESP32-native fork of the DMD library, vendored in src/DMD32/
+// Pins are set in src/DMD32/DMD32.h.  Scanning is driven by a hardware timer.
+#include "src/DMD32/DMD32.h"
+#include "src/DMD32/fonts/Arial14.h"
 #endif
 // ─────────────────────────────────────────────────────────────
 
@@ -174,7 +173,32 @@ void updateLed() {
 // ============================================================
 #ifdef HAS_P10
 // Hardware SPI: DATA=GPIO23(MOSI), CLK=GPIO18(SCK), LATCH=GPIO5(SS)
-SPIDMD dmd(P10_PANELS_WIDE, P10_PANELS_TALL, P10_PIN_OE, P10_PIN_A, P10_PIN_B, P10_PIN_SCK);
+DMD dmd(P10_PANELS_WIDE, P10_PANELS_TALL);
+
+// Hardware timer drives the display scan at ~300 µs intervals (≈333 Hz ÷ 4 rows
+// = ≈83 Hz refresh), well above the flicker threshold.
+static hw_timer_t* p10Timer = NULL;
+void IRAM_ATTR p10ScanISR() { dmd.scanDisplayBySPI(); }
+
+// DMD32 omits stringWidth — implement it from the font header.
+// Font layout: size(2) fixedWidth(1) height(1) firstChar(1) charCount(1)
+//              charWidths[charCount]  then bitmap data.
+static int p10StringWidth(const char* str) {
+  int w = 0;
+  uint16_t fsize = pgm_read_word(Arial14);
+  uint8_t  fFirst = pgm_read_byte(Arial14 + 4);
+  uint8_t  fCount = pgm_read_byte(Arial14 + 5);
+  for (; *str; str++) {
+    uint8_t c = (uint8_t)*str;
+    if (c < fFirst || c >= fFirst + fCount) continue;
+    if (fsize == 0) {                                    // fixed-width
+      w += pgm_read_byte(Arial14 + 2);
+    } else {                                             // variable-width
+      w += pgm_read_byte(Arial14 + 6 + (c - fFirst));
+    }
+  }
+  return w;
+}
 
 static String   p10ScrollText;
 static bool     p10Scrolling  = false;
@@ -186,7 +210,7 @@ static void p10StartScroll(const String& msg) {
   p10Scrolling  = true;
   p10ScrollX    = P10_WIDTH;    // start off the right edge
   p10LastScroll = millis();
-  dmd.clearScreen();
+  dmd.clearScreen(true);
 }
 
 // Call every loop iteration — advances scroll by 2 px every 50 ms.
@@ -194,11 +218,11 @@ void p10UpdateScroll() {
   if (!p10Scrolling) return;
   if (millis() - p10LastScroll < 50) return;
   p10LastScroll = millis();
-  dmd.clearScreen();
+  dmd.clearScreen(true);
   dmd.selectFont(Arial14);
   // y=1: centres the 14-tall font in the 16-row panel
-  dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str());
-  int tw = dmd.stringWidth(p10ScrollText.c_str());
+  dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str(), p10ScrollText.length(), GRAPHICS_NORMAL);
+  int tw = p10StringWidth(p10ScrollText.c_str());
   p10ScrollX -= 2;
   if (p10ScrollX < -tw) p10ScrollX = P10_WIDTH;   // loop
 }
@@ -227,22 +251,22 @@ static void drawCustomDigit(int x, int y, char d) {
   for (int row = 0; row < 9; row++) {
     uint8_t bits = rows[row];
     for (int col = 0; col < 6; col++)
-      dmd.setPixel(x + col, y + row,
-                     (bits >> (5 - col)) & 1 ? GRAPHICS_ON : GRAPHICS_OFF);
+      dmd.writePixel(x + col, y + row, GRAPHICS_NORMAL,
+                     (bits >> (5 - col)) & 1);
   }
 }
 
 // Draw colon glyph at (x, y): two 2×2 dot groups, each offset 1 px from the
 // left edge of the 4-wide colon gap.  Upper dots at row+2..+3, lower at +5..+6.
 static void drawCustomColon(int x, int y) {
-  dmd.setPixel(x + 1, y + 2, GRAPHICS_ON);
-  dmd.setPixel(x + 2, y + 2, GRAPHICS_ON);
-  dmd.setPixel(x + 1, y + 3, GRAPHICS_ON);
-  dmd.setPixel(x + 2, y + 3, GRAPHICS_ON);
-  dmd.setPixel(x + 1, y + 5, GRAPHICS_ON);
-  dmd.setPixel(x + 2, y + 5, GRAPHICS_ON);
-  dmd.setPixel(x + 1, y + 6, GRAPHICS_ON);
-  dmd.setPixel(x + 2, y + 6, GRAPHICS_ON);
+  dmd.writePixel(x + 1, y + 2, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 2, y + 2, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 1, y + 3, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 2, y + 3, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 1, y + 5, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 2, y + 5, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 1, y + 6, GRAPHICS_NORMAL, true);
+  dmd.writePixel(x + 2, y + 6, GRAPHICS_NORMAL, true);
 }
 
 // Small label font: 3 wide × 5 tall.  Bit 2 = leftmost pixel.
@@ -293,8 +317,8 @@ static void drawCustomLabel(const String& text, int x, int y) {
       for (int row = 0; row < 5; row++) {
         uint8_t bits = g->rows[row];
         for (int col = 0; col < 3; col++)
-          dmd.setPixel(cx + col, y + row,
-                         (bits >> (2 - col)) & 1 ? GRAPHICS_ON : GRAPHICS_OFF);
+          dmd.writePixel(cx + col, y + row, GRAPHICS_NORMAL,
+                         (bits >> (2 - col)) & 1);
       }
     }
     cx += 3;
@@ -327,14 +351,14 @@ void displayMessage(const String& msg) {
 #ifdef HAS_P10
   p10Scrolling = false;
   dmd.selectFont(Arial14);
-  int tw = dmd.stringWidth(msg.c_str());
+  int tw = p10StringWidth(msg.c_str());
   if (tw > P10_WIDTH) {          // too wide — scroll instead
     p10StartScroll(msg);
     return;
   }
-  dmd.clearScreen();
+  dmd.clearScreen(true);
   // Arial14 is 14 px tall; centre vertically in 16-row panel → y=1
-  dmd.drawString((P10_WIDTH - tw) / 2, 1, msg.c_str());
+  dmd.drawString((P10_WIDTH - tw) / 2, 1, msg.c_str(), msg.length(), GRAPHICS_NORMAL);
 #else
   Serial.println("[DISPLAY] " + msg);
 #endif
@@ -343,7 +367,7 @@ void displayMessage(const String& msg) {
 void displayCountdown(const String& timeStr, const String& sessionType) {
 #ifdef HAS_P10
   p10Scrolling = false;
-  dmd.clearScreen();
+  dmd.clearScreen(true);
   int lw = labelPixelWidth(sessionType);
   int lx = (P10_WIDTH - lw) / 2;
   drawCustomLabel(sessionType, lx, 0);
@@ -358,7 +382,7 @@ void displayCountdown(const String& timeStr, const String& sessionType) {
 void displayBlink(bool showTime, const String& sessionType) {
 #ifdef HAS_P10
   p10Scrolling = false;
-  dmd.clearScreen();
+  dmd.clearScreen(true);
   int lw = labelPixelWidth(sessionType);
   int lx = (P10_WIDTH - lw) / 2;
   drawCustomLabel(sessionType, lx, 0);
@@ -1368,7 +1392,13 @@ void setup() {
   // P10 display — initialise before first displayScroll call
 #ifdef HAS_P10
   dmd.begin();
-  dmd.clearScreen();
+  dmd.clearScreen(true);
+  // Hardware timer drives the scan ISR at ~300 µs intervals.
+  // Prescaler = CPU MHz → 1 MHz timer; alarm = 300 → fires every 300 µs.
+  p10Timer = timerBegin(0, ESP.getCpuFreqMHz(), true);
+  timerAttachInterrupt(p10Timer, &p10ScanISR, true);
+  timerAlarmWrite(p10Timer, 300, true);
+  timerAlarmEnable(p10Timer);
 #endif
 
   loadWifiNetworks();
@@ -1557,7 +1587,7 @@ void loop() {
     overrideDirty = false;
     if (overrideText.length() > 0) {
 #ifdef HAS_P10
-      if (dmd.stringWidth(overrideText.c_str()) > P10_WIDTH)
+      if (p10StringWidth(overrideText.c_str()) > P10_WIDTH)
         displayScroll(overrideText);
       else
         displayMessage(overrideText);
