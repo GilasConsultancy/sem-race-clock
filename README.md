@@ -10,11 +10,11 @@ A standalone `webonly.html` page replicates the full display on any laptop or TV
 
 | Component | Details | Status |
 |---|---|---|
-| ESP32 | DFRobot FireBeetle 2 ESP32-E | ✅ In use |
-| Status LEDs | Two 5 mm LEDs — red (GPIO25) + green (GPIO26) | ✅ Code ready |
-| DS3231 RTC | I²C real-time clock, SDA=GPIO21 / SCL=GPIO22 | ⏳ ~2 days |
-| P10 LED panels | HUB12, 32×16 px, ×2 → 64×16 total | ⏳ ~3 weeks |
-| Push buttons | Up / Down / Confirm / Reset | ⏳ pending |
+| ESP32 | Standard ESP32 Dev Board (38-pin) | ✅ In use |
+| DS3231 RTC | I²C real-time clock, SDA=GPIO21 / SCL=GPIO22 | ✅ In use |
+| P10 LED panels | HUB12, 32×16 px, ×2 → 64×16 total | ⏳ Pending |
+| Status LEDs | Two 5 mm LEDs — red (GPIO25) + green (GPIO26) | ❌ Not needed |
+| Push buttons | Up / Down / Confirm / Reset | ❌ Not needed |
 
 ---
 
@@ -333,6 +333,7 @@ Horizontal digit layout (total 64 px): 8 px margin | D0 D1 | 4 px colon | D2 D3 
 
 ---
 
-## Pending features (hardware not yet arrived)
+## Pending features
 
-- **Physical buttons** — Up / Down / Confirm / Reset for on-device control without the web UI.
+- **P10 panels** — Firmware is ready and compiled in; waiting for hardware to arrive and be wired up.
+- **SEM import overlap rejection** — when a Prototype and Urban Concept session share the same time slot the second import is rejected by the overlap validator. Needs a fix to either relax the rule for different types or import both atomically.

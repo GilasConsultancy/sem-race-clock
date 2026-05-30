@@ -1,122 +1,90 @@
 # TODO — SEM Race Clock
 
-Items are grouped by the hardware milestone that unlocks them.
-Check off items as they are completed.
+Items are grouped by milestone. Check off items as they are completed.
 
 ---
 
-## Now — Status LEDs (parts on hand)
+## Now — DS3231 RTC (wired and enabled)
 
-- [ ] Wire red LED: anode → GPIO25, cathode → GND via 330 Ω resistor
-- [ ] Wire green LED: anode → GPIO26, cathode → GND via 330 Ω resistor
-- [ ] Power on — verify both LEDs flash briefly on startup (self-test)
-- [ ] Verify LED states during normal operation:
-  - Green solid = WiFi + NTP OK
-  - Green slow blink = WiFi OK, NTP not yet locked
-  - Red solid = no WiFi or AP mode
-
----
-
-## ~2 days — DS3231 RTC
-
-- [ ] Install **RTClib** (by Adafruit) via Arduino IDE Library Manager
-- [ ] Wire DS3231 module: SDA → GPIO21, SCL → GPIO22, VCC → 3.3 V, GND → GND
-- [ ] Ensure CR2032 battery is installed in the DS3231 module
-- [ ] Uncomment `#define HAS_RTC` near the top of `SEM_Time2LastStart.ino`
-- [ ] Flash firmware
+- [x] Install **RTClib** (by Adafruit) via Arduino IDE Library Manager
+- [x] Wire DS3231 module: SDA → D21, SCL → D22, VCC → 3V3, GND → GND
+- [x] Ensure CR2032 battery is installed in the DS3231 module
+- [x] Uncomment `#define HAS_RTC` in firmware
+- [x] Flash firmware
 - [ ] Verify on Serial Monitor:
-  - `RTC loaded: <timestamp>` on boot (if battery was installed and time was set)
-  - `RTC time invalid (year …)` on fresh module — expected first boot
+  - `RTC loaded: <timestamp>` on boot (if battery is installed and time was set)
+  - `RTC time invalid (year …)` on fresh module — expected on first boot
   - `RTC updated from NTP` after NTP sync
 - [ ] Test power-cut recovery: disconnect WiFi, restart → time should come from RTC
 - [ ] Test NTP override: with WiFi and RTC both present, NTP time should win
 
 ---
 
-## ~3 weeks — P10 HUB12 LED Panels
+## Next — P10 HUB12 LED Panels (firmware ready, hardware pending)
 
-- [ ] Install **DMD2** (by Freetronics) via Arduino IDE Library Manager
+- [x] Install **DMD2** (by Freetronics) via Arduino IDE Library Manager
+- [x] Resolve DMD2 API differences (constructor, clearScreen, setPixel, drawString)
+- [x] Uncomment `#define HAS_P10` in firmware
+- [x] Flash firmware (compiles clean; degrades gracefully without panels connected)
 - [ ] Wire both panels (2 × 32×16, daisy-chained):
 
-  | HUB12 pin | ESP32 GPIO |
-  |---|---|
-  | DATA (D) | GPIO23 (MOSI) |
-  | CLK | GPIO18 (SCK) |
-  | SCLK / LATCH | GPIO5 (SS) |
-  | nOE | GPIO4 |
-  | A | GPIO16 |
-  | B | GPIO17 |
-  | GND | GND |
-  | VCC | 5 V (external supply recommended) |
+  | Signal | ESP32 pin | HUB12 pin |
+  |---|---|---|
+  | DATA (MOSI) | D23 | 2 |
+  | CLK (SCK) | D18 | 1 |
+  | LATCH (SS) | D5 | 3 |
+  | OE (active low) | D4 | 5 |
+  | Row select A | D16 | 7 |
+  | Row select B | D17 | 9 |
+  | GND | GND | 4, 6, 8, 10 |
+  | +5V | VIN | 14, 16 |
 
-- [ ] Uncomment `#define HAS_P10` near the top of `SEM_Time2LastStart.ino`
-- [ ] Flash firmware
+  Power: USB 5V 2A+ charger → ESP32 USB-C. VIN carries the raw 5V to the panels.
+  Daisy-chain: OUTPUT of panel 1 → INPUT of panel 2 via included ribbon cable.
+
 - [ ] Verify startup scroll "CONNECTING..." is visible
-- [ ] Verify two-row countdown layout: type on top line, time on bottom
-- [ ] Verify blink timing on hardware (code done — see Completed)
+- [ ] Verify two-row countdown layout: type label on top, time on bottom
+- [ ] Verify blink timing (WARNING: 750 ms on / 250 ms off; LAST START: 1 s)
 - [ ] Verify auto-scroll kicks in for long messages (IP address, AP credentials)
-- [ ] **Possible DMD2 API adjustment**: if the sketch fails to compile, the
-  `drawString(x, y, str, len, GRAPHICS_NORMAL)` signature may differ in the
-  installed version. Check DMD2 examples and adjust the call signature in the
-  four display functions if needed.
 - [ ] **"URBAN CONCEPT" overflow** — 13 chars × 6 px = 78 px > 64 px panel width.
-  The trim loop in `displayCountdown` and `displayBlink` shaves trailing characters
-  until it fits; confirm what the truncated string looks like on hardware and decide
-  if raw truncation is acceptable or a smarter abbreviation is needed.
+  The trim loop shaves trailing characters until it fits; confirm what the
+  truncated string looks like and decide if abbreviation is needed.
 
 ### Font — revisit with hardware in hand
 
-- [x] `SystemFont5x7` confirmed as the only built-in DMD2 font that fits the
-  two-row layout. Panel is 16 px tall; type row at y=1 (7 px) + time row at
-  y=9 (7 px) fills all 16 px. At 10 mm LED pitch characters are 50×70 mm —
-  readable at pit-lane distances.
-- [ ] **Visual hierarchy** — both rows currently render at the same font size.
-  A smaller type label would de-emphasise the session name and make the
-  countdown more prominent. Defer until hardware is present so the result
-  can be judged visually.
-- [ ] **Smaller font research** — DMD2 ships no font smaller than 5×7.
-  `github.com/filmote/Font3x5` exists but is Arduboy-specific (own renderer
-  class, writes to Arduboy framebuffer). Its data IS column-based (3 bytes /
-  char), the same structure DMD2 uses, so conversion is feasible:
-    1. Verify bit ordering in `Font3x5.cpp` (bit 0 = top or bottom?)
-    2. Add DMD2 header `[width=3, height=5, firstChar, lastChar]`
-    3. Adjust bit order per byte if needed
-    4. Drop in as `fonts/Font3x5_DMD2.h`, use with `dmd.selectFont(Font3x5_DMD2)`
-       for the type row only; keep `SystemFont5x7` for the time row
-  A 3×5 font at 4 px/char fits "URBAN CONCEPT" (52 px) without trimming and
-  would also fix the overflow issue. **Do not attempt blind — test on hardware.**
+- [ ] **Visual hierarchy** — both rows render at the same font size. A smaller
+  type label would de-emphasise the session name. Defer until hardware present.
+- [ ] **Smaller font for label row** — a 3×5 font fits "URBAN CONCEPT" (52 px)
+  without trimming and would also fix the overflow issue.
+  `github.com/filmote/Font3x5` exists but needs conversion to DMD2 format:
+  1. Verify bit ordering in `Font3x5.cpp` (bit 0 = top or bottom?)
+  2. Add DMD2 header `[width, height, firstChar, lastChar]`
+  3. Adjust bit order per byte if needed
+  4. Drop in as `fonts/Font3x5_DMD2.h`, use for label row only
+  **Do not attempt blind — test on hardware.**
 
 ---
 
 ## Before the event — Competition prep
 
-- [ ] Change WiFi credentials: comment out `Gilas` network, uncomment `TRANS`
-  network in `SEM_Time2LastStart.ino`
-- [ ] Re-flash firmware with competition credentials
+- [ ] Add competition venue WiFi via the web UI **WiFi** card (no reflash needed)
 - [ ] Confirm `raceclock.local` resolves on the venue network (mDNS may not work
   on some managed networks — fall back to IP address if needed)
-- [ ] Pre-load the full day's session schedule from pit WiFi before track opens
-- [ ] Confirm DS3231 battery is charged and time is correct
+- [ ] Pre-load the full day's session schedule via **Import from official schedule**
+  or by pushing from one clock to the other
+- [ ] Confirm DS3231 battery is charged and time is correct after NTP sync
+- [ ] If running two clocks: verify peer discovery and session push works on venue network
 
 ---
 
 ## Future / design-pending
 
-- [ ] **SEM import overlap rejection** — when both a Prototype and Urban Concept
-  session share the same time slot (as they do at most SEM events), the second
-  `POST /api/sessions` is silently rejected by the overlap validator. Fix options:
-  (a) relax the overlap rule for sessions of different types; or (b) import both
-  types in a single request that the server applies atomically. Until fixed, only
-  the first type in the response will be imported and the user sees "X rejected"
-  in the status bar.
-- [ ] **`displayNeedsRefresh` flag** — `loop()` currently resets the clock state
-  after an override is cleared by casting `-1` to `ClockState`. Replace with a
-  `bool displayNeedsRefresh` flag to make the intent explicit and avoid UB.
-- [ ] **Physical buttons** (Up / Down / Confirm / Reset) — GPIO pins TBD.
-  Requires designing the on-device UI flow before implementation.
-- [ ] **WiFi credential management via web UI** — currently credentials are
-  hardcoded and require a reflash to change. A settings page for SSID/password
-  stored in NVS would remove this dependency.
+- [ ] **SEM import overlap rejection** — when a Prototype and Urban Concept session
+  share the same time slot the second POST is rejected by the overlap validator.
+  Fix: relax the rule for sessions of different types, or import both atomically.
+- [ ] **`displayNeedsRefresh` flag** — `loop()` resets clock state after an override
+  is cleared by casting `-1` to `ClockState`. Replace with a `bool` flag to make
+  intent explicit and avoid UB.
 - [ ] **Multi-day scheduling** — sessions have no date field (time-of-day only).
   For multi-day events, either add a date field or accept that sessions are
   re-entered each morning.
@@ -139,16 +107,25 @@ Check off items as they are completed.
 - [x] `warnMinutes` clamped server-side (1–30)
 - [x] NTP sync status indicator in web UI
 - [x] WiFi AP fallback (SSID `RaceClock` / `raceclock1`) instead of restart
-- [x] Status LED logic (GPIO25/26) — wiring pending
-- [x] DS3231 RTC integration code — hardware + library pending
-- [x] P10 HUB12 display code via DMD2 — hardware + library pending
-- [x] P10 live display preview widget in web UI (`/api/display` + rendered panel)
+- [x] WiFi credential management via web UI — NVS-stored, add/remove/reorder, up to 10 networks
+- [x] Multi-device peer discovery — mDNS scan, auto device number negotiation, no NVS persistence
+- [x] Session push to peers — `POST /api/peers/push`; firmware does server-to-server HTTP
+- [x] Auto-refresh sessions in web UI when pushed by peer (8 s background polling)
+- [x] WiFi card redesign — CONNECTION / PEERS / NETWORKS / ADD NETWORK subheaders
+- [x] Toast notifications — replaced all `alert()` with non-blocking slide-up toasts
+- [x] Non-blocking Shell font load — `media="print"` trick; page renders immediately in AP mode
+- [x] Mock peer tool — `tools/mock_raceclock.py` with push-in/push-out test modes
+- [x] Status LED logic (GPIO25/26) — compiled in but LEDs dropped from BOM
+- [x] DS3231 RTC — wired, library installed, `#define HAS_RTC` enabled
+- [x] P10 HUB12 display code — DMD2 API fixed, `#define HAS_P10` enabled, hardware pending
+- [x] P10 live display preview widget in web UI (`/api/display` + rendered panel canvas)
 - [x] ArduinoOTA — firmware upload over WiFi from Arduino IDE (password: `raceclock`)
 - [x] ElegantOTA — browser-based firmware + filesystem upload at `/update` (admin / raceclock)
+- [x] GitHub Actions CI — automated firmware + LittleFS build and release on version tag
 - [x] WARNING blink asymmetric (750 ms on / 250 ms off); type line stays solid
-- [x] `handleGetOverride` uses `serializeJson` — safe for quotes and backslashes in override text
+- [x] `handleGetOverride` uses `serializeJson` — safe for quotes and backslashes
 - [x] SEM import checks per-session POST results and reports exact ok/rejected counts
 - [x] SEM day picker auto-selects today (device time in event timezone via `en-CA` locale)
-- [x] SEM import panel auto-closes 2 s after a fully-successful import
-- [x] Redundant `typeShort` alias removed from `handleGetDisplay`; uses `sType` directly
-- [x] Tabindex on all interactive elements: sessions (1–5), settings (6–9), P10/override (10–12), web files (13–14), session form (20–25), confirm dialog (30–31)
+- [x] SEM import panel auto-closes 2 s after fully-successful import
+- [x] Redundant `typeShort` alias removed from `handleGetDisplay`
+- [x] Tabindex on all interactive elements
