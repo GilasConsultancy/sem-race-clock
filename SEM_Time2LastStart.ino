@@ -40,6 +40,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define P10_PIN_OE       4   // Output-enable, active low
 #define P10_PIN_A        16  // Row-select A
 #define P10_PIN_B        17  // Row-select B
+#define P10_PIN_SCK      18  // SPI clock (required by DMD2 ≥ 2.x constructor)
 #define P10_WIDTH       (P10_PANELS_WIDE * 32)  // 64 px — always available
 
 #ifdef HAS_RTC
@@ -50,6 +51,16 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #ifdef HAS_P10
 #include <DMD2.h>
 #include <fonts/Arial14.h>       // system messages and scroll (TRACK CLOSED, etc.)
+// DMD2 ≥ 2.x removed these constants — define them if the installed version doesn't
+#ifndef GRAPHICS_NORMAL
+#  define GRAPHICS_NORMAL 0
+#endif
+#ifndef GRAPHICS_ON
+#  define GRAPHICS_ON  1
+#endif
+#ifndef GRAPHICS_OFF
+#  define GRAPHICS_OFF 0
+#endif
 #endif
 // ─────────────────────────────────────────────────────────────
 
@@ -169,7 +180,7 @@ void updateLed() {
 // ============================================================
 #ifdef HAS_P10
 // Hardware SPI: DATA=GPIO23(MOSI), CLK=GPIO18(SCK), LATCH=GPIO5(SS)
-SPIDMD dmd(P10_PANELS_WIDE, P10_PANELS_TALL, P10_PIN_OE, P10_PIN_A, P10_PIN_B);
+SPIDMD dmd(P10_PANELS_WIDE, P10_PANELS_TALL, P10_PIN_OE, P10_PIN_A, P10_PIN_B, P10_PIN_SCK);
 
 static String   p10ScrollText;
 static bool     p10Scrolling  = false;
@@ -181,7 +192,7 @@ static void p10StartScroll(const String& msg) {
   p10Scrolling  = true;
   p10ScrollX    = P10_WIDTH;    // start off the right edge
   p10LastScroll = millis();
-  dmd.clearScreen(true);
+  dmd.clearScreen();
 }
 
 // Call every loop iteration — advances scroll by 2 px every 50 ms.
@@ -189,7 +200,7 @@ void p10UpdateScroll() {
   if (!p10Scrolling) return;
   if (millis() - p10LastScroll < 50) return;
   p10LastScroll = millis();
-  dmd.clearScreen(true);
+  dmd.clearScreen();
   dmd.selectFont(Arial14);
   // y=1: centres the 14-tall font in the 16-row panel
   dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str(),
@@ -223,7 +234,7 @@ static void drawCustomDigit(int x, int y, char d) {
   for (int row = 0; row < 9; row++) {
     uint8_t bits = rows[row];
     for (int col = 0; col < 6; col++)
-      dmd.writePixel(x + col, y + row,
+      dmd.setPixel(x + col, y + row,
                      (bits >> (5 - col)) & 1 ? GRAPHICS_ON : GRAPHICS_OFF);
   }
 }
@@ -231,14 +242,14 @@ static void drawCustomDigit(int x, int y, char d) {
 // Draw colon glyph at (x, y): two 2×2 dot groups, each offset 1 px from the
 // left edge of the 4-wide colon gap.  Upper dots at row+2..+3, lower at +5..+6.
 static void drawCustomColon(int x, int y) {
-  dmd.writePixel(x + 1, y + 2, GRAPHICS_ON);
-  dmd.writePixel(x + 2, y + 2, GRAPHICS_ON);
-  dmd.writePixel(x + 1, y + 3, GRAPHICS_ON);
-  dmd.writePixel(x + 2, y + 3, GRAPHICS_ON);
-  dmd.writePixel(x + 1, y + 5, GRAPHICS_ON);
-  dmd.writePixel(x + 2, y + 5, GRAPHICS_ON);
-  dmd.writePixel(x + 1, y + 6, GRAPHICS_ON);
-  dmd.writePixel(x + 2, y + 6, GRAPHICS_ON);
+  dmd.setPixel(x + 1, y + 2, GRAPHICS_ON);
+  dmd.setPixel(x + 2, y + 2, GRAPHICS_ON);
+  dmd.setPixel(x + 1, y + 3, GRAPHICS_ON);
+  dmd.setPixel(x + 2, y + 3, GRAPHICS_ON);
+  dmd.setPixel(x + 1, y + 5, GRAPHICS_ON);
+  dmd.setPixel(x + 2, y + 5, GRAPHICS_ON);
+  dmd.setPixel(x + 1, y + 6, GRAPHICS_ON);
+  dmd.setPixel(x + 2, y + 6, GRAPHICS_ON);
 }
 
 // Small label font: 3 wide × 5 tall.  Bit 2 = leftmost pixel.
@@ -289,7 +300,7 @@ static void drawCustomLabel(const String& text, int x, int y) {
       for (int row = 0; row < 5; row++) {
         uint8_t bits = g->rows[row];
         for (int col = 0; col < 3; col++)
-          dmd.writePixel(cx + col, y + row,
+          dmd.setPixel(cx + col, y + row,
                          (bits >> (2 - col)) & 1 ? GRAPHICS_ON : GRAPHICS_OFF);
       }
     }
@@ -328,7 +339,7 @@ void displayMessage(const String& msg) {
     p10StartScroll(msg);
     return;
   }
-  dmd.clearScreen(true);
+  dmd.clearScreen();
   // Arial14 is 14 px tall; centre vertically in 16-row panel → y=1
   dmd.drawString((P10_WIDTH - tw) / 2, 1,
                  msg.c_str(), msg.length(), GRAPHICS_NORMAL);
@@ -340,7 +351,7 @@ void displayMessage(const String& msg) {
 void displayCountdown(const String& timeStr, const String& sessionType) {
 #ifdef HAS_P10
   p10Scrolling = false;
-  dmd.clearScreen(true);
+  dmd.clearScreen();
   int lw = labelPixelWidth(sessionType);
   int lx = (P10_WIDTH - lw) / 2;
   drawCustomLabel(sessionType, lx, 0);
@@ -355,7 +366,7 @@ void displayCountdown(const String& timeStr, const String& sessionType) {
 void displayBlink(bool showTime, const String& sessionType) {
 #ifdef HAS_P10
   p10Scrolling = false;
-  dmd.clearScreen(true);
+  dmd.clearScreen();
   int lw = labelPixelWidth(sessionType);
   int lx = (P10_WIDTH - lw) / 2;
   drawCustomLabel(sessionType, lx, 0);
@@ -1365,7 +1376,7 @@ void setup() {
   // P10 display — initialise before first displayScroll call
 #ifdef HAS_P10
   dmd.begin();
-  dmd.clearScreen(true);
+  dmd.clearScreen();
 #endif
 
   loadWifiNetworks();
