@@ -61,6 +61,8 @@ jobs:
           arduino-cli lib install "ArduinoJson"
           arduino-cli lib install "ezTime"
           arduino-cli lib install "ElegantOTA"
+          arduino-cli lib install "RTClib"
+          arduino-cli lib install "Adafruit BusIO"
 
       # ── Compile ───────────────────────────────────────────────────────────
       # arduino-cli requires the sketch directory name to match the .ino file.
@@ -68,14 +70,15 @@ jobs:
       # giving 1536 KB per OTA slot (vs 1280 KB) with 960 KB for LittleFS.
       - name: Stage sketch directory
         run: |
-          mkdir SEM_Time2LastStart
+          mkdir -p SEM_Time2LastStart
           cp SEM_Time2LastStart.ino SEM_Time2LastStart/
           cp partitions.csv SEM_Time2LastStart/
+          cp -r src SEM_Time2LastStart/   # DMD32 vendored driver
 
       - name: Compile firmware
         run: |
           arduino-cli compile \
-            --fqbn esp32:esp32:dfrobot_firebeetle2_esp32e:PartitionScheme=default \
+            --fqbn esp32:esp32:esp32 \
             --output-dir build \
             SEM_Time2LastStart
 
