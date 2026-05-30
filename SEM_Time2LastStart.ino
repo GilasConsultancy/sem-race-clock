@@ -890,6 +890,12 @@ void handleGetSettings() {
   doc["apMode"]      = apMode;
   doc["hostname"]    = effectiveHostname;
   doc["deviceNum"]   = deviceNum;
+  // Debug: show what time the firmware actually computes as local time
+  char dbgBuf[20];
+  snprintf(dbgBuf, sizeof(dbgBuf), "%02d:%02d:%02d",
+           localTZ.hour(), localTZ.minute(), localTZ.second());
+  doc["fw_local_time"] = dbgBuf;
+  doc["fw_posix"]      = localTZ.getPosix();
   String out;
   serializeJson(doc, out);
   server.send(200, "application/json", out);
