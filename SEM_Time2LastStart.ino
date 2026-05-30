@@ -24,7 +24,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
-// #define HAS_P10   // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
+#define HAS_P10   // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
 //                   //   DATA → GPIO23 (MOSI)  CLK  → GPIO18 (SCK)
 //                   //   LATCH→ GPIO5  (SS)    OE   → GPIO4
 //                   //   A    → GPIO16         B    → GPIO17
@@ -53,7 +53,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 // DMD32 — ESP32-native fork of the DMD library, vendored in src/DMD32/
 // Pins are set in src/DMD32/DMD32.h.  Scanning is driven by a hardware timer.
 #include "src/DMD32/DMD32.h"
-#include "src/DMD32/fonts/Arial14.h"
+#include "src/DMD32/fonts/Arial_14.h"
 #endif
 // ─────────────────────────────────────────────────────────────
 
@@ -185,16 +185,16 @@ void IRAM_ATTR p10ScanISR() { dmd.scanDisplayBySPI(); }
 //              charWidths[charCount]  then bitmap data.
 static int p10StringWidth(const char* str) {
   int w = 0;
-  uint16_t fsize = pgm_read_word(Arial14);
-  uint8_t  fFirst = pgm_read_byte(Arial14 + 4);
-  uint8_t  fCount = pgm_read_byte(Arial14 + 5);
+  uint16_t fsize = pgm_read_word(Arial_14);
+  uint8_t  fFirst = pgm_read_byte(Arial_14 + 4);
+  uint8_t  fCount = pgm_read_byte(Arial_14 + 5);
   for (; *str; str++) {
     uint8_t c = (uint8_t)*str;
     if (c < fFirst || c >= fFirst + fCount) continue;
     if (fsize == 0) {                                    // fixed-width
-      w += pgm_read_byte(Arial14 + 2);
+      w += pgm_read_byte(Arial_14 + 2);
     } else {                                             // variable-width
-      w += pgm_read_byte(Arial14 + 6 + (c - fFirst));
+      w += pgm_read_byte(Arial_14 + 6 + (c - fFirst));
     }
   }
   return w;
@@ -219,7 +219,7 @@ void p10UpdateScroll() {
   if (millis() - p10LastScroll < 50) return;
   p10LastScroll = millis();
   dmd.clearScreen(true);
-  dmd.selectFont(Arial14);
+  dmd.selectFont(Arial_14);
   // y=1: centres the 14-tall font in the 16-row panel
   dmd.drawString(p10ScrollX, 1, p10ScrollText.c_str(), p10ScrollText.length(), GRAPHICS_NORMAL);
   int tw = p10StringWidth(p10ScrollText.c_str());
@@ -350,14 +350,14 @@ static void drawCustomTime(const String& t) {
 void displayMessage(const String& msg) {
 #ifdef HAS_P10
   p10Scrolling = false;
-  dmd.selectFont(Arial14);
+  dmd.selectFont(Arial_14);
   int tw = p10StringWidth(msg.c_str());
   if (tw > P10_WIDTH) {          // too wide — scroll instead
     p10StartScroll(msg);
     return;
   }
   dmd.clearScreen(true);
-  // Arial14 is 14 px tall; centre vertically in 16-row panel → y=1
+  // Arial_14 is 14 px tall; centre vertically in 16-row panel → y=1
   dmd.drawString((P10_WIDTH - tw) / 2, 1, msg.c_str(), msg.length(), GRAPHICS_NORMAL);
 #else
   Serial.println("[DISPLAY] " + msg);
@@ -1391,14 +1391,13 @@ void setup() {
 
   // P10 display — initialise before first displayScroll call
 #ifdef HAS_P10
-  dmd.begin();
   dmd.clearScreen(true);
   // Hardware timer drives the scan ISR at ~300 µs intervals.
-  // Prescaler = CPU MHz → 1 MHz timer; alarm = 300 → fires every 300 µs.
-  p10Timer = timerBegin(0, ESP.getCpuFreqMHz(), true);
-  timerAttachInterrupt(p10Timer, &p10ScanISR, true);
-  timerAlarmWrite(p10Timer, 300, true);
-  timerAlarmEnable(p10Timer);
+  // ESP32 Arduino core 3.x API: timerBegin(hz), timerAlarm(t, ticks, reload, count).
+  // 1 MHz timer, alarm at 300 ticks → fires every 300 µs.
+  p10Timer = timerBegin(1000000);
+  timerAttachInterrupt(p10Timer, &p10ScanISR);
+  timerAlarm(p10Timer, 300, true, 0);
 #endif
 
   loadWifiNetworks();
