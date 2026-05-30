@@ -22,10 +22,15 @@ Items are grouped by milestone. Check off items as they are completed.
 
 ## Next — P10 HUB12 LED Panels (firmware ready, hardware pending)
 
-- [x] Install **DMD2** (by Freetronics) via Arduino IDE Library Manager
-- [x] Resolve DMD2 API differences (constructor, clearScreen, setPixel, drawString)
-- [x] Uncomment `#define HAS_P10` in firmware
-- [x] Flash firmware (compiles clean; degrades gracefully without panels connected)
+- [ ] **Replace DMD2 with an ESP32-native P10 driver** — DMD2 v0.0.3 (Freetronics)
+  does not compile on ESP32: it omits `#include <Arduino.h>` in its `.cpp` files
+  and uses AVR Timer2 interrupts that don't exist on ESP32.  Patching the headers
+  alone is not sufficient.  Plan: write a minimal driver class in `src/P10Display`
+  using hardware SPI + a FreeRTOS task (pinned to core 0) for the scan loop.
+  The driver only needs: `begin()`, `clearScreen()`, `setPixel()`, `drawString()`,
+  `selectFont()`, `stringWidth()` — everything our firmware actually calls.
+  **Do not attempt without hardware present for testing.**
+- [ ] Once driver compiles: uncomment `#define HAS_P10` and flash
 - [ ] Wire both panels (2 × 32×16, daisy-chained):
 
   | Signal | ESP32 pin | HUB12 pin |
@@ -117,7 +122,8 @@ Items are grouped by milestone. Check off items as they are completed.
 - [x] Mock peer tool — `tools/mock_raceclock.py` with push-in/push-out test modes
 - [x] Status LED logic (GPIO25/26) — compiled in but LEDs dropped from BOM
 - [x] DS3231 RTC — wired, library installed, `#define HAS_RTC` enabled
-- [x] P10 HUB12 display code — DMD2 API fixed, `#define HAS_P10` enabled, hardware pending
+- [x] P10 HUB12 display code — custom pixel fonts, layout, blink logic all written
+- [ ] P10 compilation — DMD2 incompatible with ESP32; needs custom driver (see above)
 - [x] P10 live display preview widget in web UI (`/api/display` + rendered panel canvas)
 - [x] ArduinoOTA — firmware upload over WiFi from Arduino IDE (password: `raceclock`)
 - [x] ElegantOTA — browser-based firmware + filesystem upload at `/update` (admin / raceclock)

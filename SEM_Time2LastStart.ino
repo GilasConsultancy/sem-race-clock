@@ -24,7 +24,9 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
-#define HAS_P10      // P10 HUB12 LED panels    (needs: DMD2 by Freetronics)
+// #define HAS_P10   // P10 HUB12 LED panels — DMD2 is AVR/esp8266 only and does
+//                   // not compile on ESP32 (missing Arduino.h, AVR timers).
+//                   // Replace with an ESP32-native driver when panels arrive.
 //                   //   DATA → GPIO23 (MOSI)  CLK  → GPIO18 (SCK)
 //                   //   LATCH→ GPIO5  (SS)    OE   → GPIO4
 //                   //   A    → GPIO16         B    → GPIO17
