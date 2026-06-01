@@ -966,10 +966,23 @@ static uint32_t   sseLastPing = 0;
 void sseBegin() { sseServer.begin(); }
 
 // Push a named event to the connected browser (fire-and-forget).
+// Guards against blocking writes: only writes if the TCP send buffer has room.
+// If the socket is stalled (browser suspended, laptop lid closed) we drop the
+// client rather than blocking the main loop waiting for the window to open.
 void ssePush(const char* type) {
   if (!sseActive) return;
   if (!sseClient.connected()) { sseActive = false; sseClient.stop(); return; }
-  sseClient.print(String("data: {\"type\":\"") + type + "\"}\n\n");
+  String msg = String("data: {\"type\":\"") + type + "\"}\n\n";
+  // availableForWrite() returns the number of bytes the TCP stack can accept
+  // right now without blocking.  If there isn't room, kill the connection
+  // instead of stalling the loop indefinitely.
+  if (sseClient.availableForWrite() < (int)msg.length()) {
+    Serial.println("[SSE] send buffer full — dropping client");
+    sseActive = false;
+    sseClient.stop();
+    return;
+  }
+  sseClient.print(msg);
   sseLastPing = millis();
 }
 
@@ -999,8 +1012,14 @@ void sseLoop() {
     sseClient.stop();
   }
   if (sseActive && millis() - sseLastPing > 15000) {
-    sseClient.print(": ping\n\n");            // keepalive comment every 15 s
-    sseLastPing = millis();
+    if (sseClient.availableForWrite() >= 12) {
+      sseClient.print(": ping\n\n");          // keepalive comment every 15 s
+      sseLastPing = millis();
+    } else {
+      // Can't write — socket is stalled, drop it
+      sseActive = false;
+      sseClient.stop();
+    }
   }
 }
 
@@ -1823,6 +1842,7 @@ void loop() {
       HTTPClient http; WiFiClient wc;
       http.begin(wc, "http://192.168.4.1/api/provision");
       http.addHeader("Content-Type", "application/json");
+      http.setTimeout(2000);   // never block the loop for more than 2 s
       String body = "{\"hostname\":\"" + effectiveHostname + "\",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
       http.POST(body); http.end();
     }
@@ -1870,6 +1890,39 @@ void loop() {
   if (millis() - lastSessionCheck > 30000) {
     lastSessionCheck = millis();
     updateActiveSession();
+  }
+
+  // Heap watchdog — reboot before heap exhaustion causes a silent crash.
+  // After days of String allocations the heap fragments; 15 KB is the safety
+  // floor below which JSON/HTTP operations start failing in unpredictable ways.
+  { static uint32_t lastHeapCheck = 0;
+    if (millis() - lastHeapCheck > 60000) {
+      lastHeapCheck = millis();
+      uint32_t free = ESP.getFreeHeap();
+      Serial.printf("[heap] free=%u  min=%u\n", free, ESP.getMinFreeHeap());
+      if (free < 15000) {
+        Serial.println("[heap] critically low — rebooting");
+        displayMessage("REBOOT...");
+        delay(500);
+        ESP.restart();
+      }
+    }
+  }
+
+  // Daily safety-net reboot at 03:00 local time (track is always closed then).
+  // Clears any accumulated heap fragmentation or stale socket state.
+  { static bool rebootArmed = true;
+    int h = localTZ.hour();
+    int m = localTZ.minute();
+    // Arm at 03:01 (so a reboot at 03:00 doesn't immediately re-trigger)
+    if (h == 3 && m == 1)  rebootArmed = true;
+    if (h == 3 && m == 0 && rebootArmed) {
+      rebootArmed = false;
+      Serial.println("[watchdog] Daily reboot at 03:00");
+      displayMessage("REBOOT...");
+      delay(500);
+      ESP.restart();
+    }
   }
 
   // Clock state machine
