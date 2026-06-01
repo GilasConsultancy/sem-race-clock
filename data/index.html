@@ -112,7 +112,7 @@
 
         <hr class="divider">
         <button class="secondary" tabindex="1" onclick="showAddForm()">+ Add session manually</button>
-        <button class="secondary" tabindex="2" id="semToggleBtn" onclick="toggleSEMImport()">↓ Import from official schedule</button>
+        <button class="secondary" tabindex="2" id="semToggleBtn" onclick="toggleSEMImport()" style="display:none">↓ Import from official schedule</button>
 
         <div id="semPanel" style="display:none; margin-top:12px;">
           <div id="semLoading" class="hint"        style="display:none">Fetching schedule…</div>
@@ -563,6 +563,11 @@ async function loadSettings() {
     if (settings.apMode) {
       document.getElementById('apBanner').style.display = 'block';
     }
+    // Only offer SEM import when we have proven internet (NTP synced).
+    // Without internet the firmware would block for up to 16 s trying to
+    // reach the SEM API before returning an error.
+    document.getElementById('semToggleBtn').style.display =
+      settings.ntpSynced ? '' : 'none';
     // Hostname / device identity
     if (settings.hostname) {
       const hn = settings.hostname;

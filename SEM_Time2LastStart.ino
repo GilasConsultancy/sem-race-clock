@@ -648,7 +648,10 @@ bool isSEMTrackSession(const String& activity, const String& notes) {
 static String semScheduleCache;   // empty = not yet fetched this boot
 
 void handleSEMSchedule() {
-  if (apMode || WiFi.status() != WL_CONNECTED) {
+  // Require an NTP sync as proof of internet reachability.
+  // WiFi can be connected to a local network with no WAN — in that case
+  // fetchSEMSchedule would block for up to 16 s before failing.
+  if (apMode || WiFi.status() != WL_CONNECTED || timeStatus() != timeSet) {
     server.send(503, "application/json", "{\"error\":\"No internet — cannot reach SEM API\"}");
     return;
   }
