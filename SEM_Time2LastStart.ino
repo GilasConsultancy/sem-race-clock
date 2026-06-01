@@ -93,6 +93,54 @@ static const int PEER_MAX = 9;
 static PeerDevice peers[PEER_MAX];
 static int        peerCount = 0;
 
+// ── Background mDNS scan (FreeRTOS task, core 1) ──────────────────────────────
+// MDNS.queryService() blocks for ~2 s; running it in a task keeps loop() free.
+// Set mdnsScanRequested = true to trigger a scan; read mdnsScanDone + peersDirty
+// back in loop() (both are only acted on from loop(), so no extra locking needed
+// for those flags).  peers[] is protected by peersMux during the brief copy.
+static volatile bool      mdnsScanRequested = false;
+static volatile bool      mdnsScanRunning   = false;
+static volatile bool      mdnsScanDone      = false;
+static volatile bool      peersDirty        = false;
+static portMUX_TYPE       peersMux          = portMUX_INITIALIZER_UNLOCKED;
+
+// Trigger a scan if one isn't already running.
+static void mdnsScanTrigger() {
+  if (mdnsScanRunning) return;
+  mdnsScanRunning = true;
+  mdnsScanDone    = false;
+  // Stack 4 KB is enough for String ops + MDNS internals; priority 1 (below idle=0? no, idle=0).
+  // Pinned to core 1 (same as loop) so FreeRTOS serialises access to MDNS state.
+  xTaskCreatePinnedToCore(mdnsScanTaskFn, "mdnsScan", 4096, NULL, 1, NULL, 1);
+}
+
+static void mdnsScanTaskFn(void*) {
+  PeerDevice tmp[PEER_MAX];
+  int        tmpCount = 0;
+
+  int n = MDNS.queryService("raceclock", "tcp");
+  for (int i = 0; i < n && tmpCount < PEER_MAX; i++) {
+    IPAddress addr = resolveAddress(i);
+    if (addr == WiFi.localIP()) continue;
+    tmp[tmpCount].hostname = MDNS.hostname(i) + ".local";
+    tmp[tmpCount].ip       = addr.toString();
+    tmp[tmpCount].port     = MDNS.port(i);
+    tmpCount++;
+  }
+  lastPeerScan = millis();
+
+  // Brief critical section — copy results into the shared array
+  taskENTER_CRITICAL(&peersMux);
+  peersDirty = (tmpCount != peerCount);
+  peerCount  = tmpCount;
+  for (int i = 0; i < tmpCount; i++) peers[i] = tmp[i];
+  taskEXIT_CRITICAL(&peersMux);
+
+  mdnsScanRunning   = false;
+  mdnsScanDone      = true;   // loop() picks this up to push SSE if needed
+  vTaskDelete(NULL);          // one-shot task: delete self
+}
+
 // --- Unpaired devices (connected to our AP, waiting to be provisioned) ---
 struct UnpairedDevice { String hostname; String ip; uint32_t seenAt; };
 static const int UNPAIRED_MAX = 4;
@@ -590,7 +638,7 @@ bool fetchURL(const String& url, String& body) {
   client.setInsecure();
   HTTPClient http;
   http.begin(client, url);
-  http.setTimeout(15000);
+  http.setTimeout(8000);
   bool ok = (http.GET() == 200);
   if (ok) body = http.getString();
   http.end();
@@ -685,20 +733,10 @@ void handleGetTime() {
 // Returns a JSON array of discovered peer clocks on the local network.
 // Uses a 30-second cache to avoid blocking the main thread too often.
 void handleGetPeers() {
-  if (millis() - lastPeerScan > 30000 && !apMode && WiFi.status() == WL_CONNECTED) {
-    peerCount = 0;
-    int n = MDNS.queryService("raceclock", "tcp");
-    lastPeerScan = millis();
-    for (int i = 0; i < n; i++) {
-      IPAddress addr = resolveAddress(i);
-      if (addr == WiFi.localIP()) continue;  // skip self
-      if (peerCount >= PEER_MAX) break;
-      peers[peerCount].hostname = MDNS.hostname(i) + ".local";
-      peers[peerCount].ip       = addr.toString();
-      peers[peerCount].port     = MDNS.port(i);
-      peerCount++;
-    }
-  }
+  // Trigger a background scan if the cache is stale — returns immediately.
+  // The browser will get fresh results on the next poll after the task completes.
+  if (millis() - lastPeerScan > 30000 && !apMode && WiFi.status() == WL_CONNECTED)
+    mdnsScanTrigger();
   JsonDocument doc;
   JsonArray arr = doc.to<JsonArray>();
   for (int i = 0; i < peerCount; i++) {
@@ -727,6 +765,7 @@ void handlePeersPush() {
   for (int p = 0; p < peerCount; p++) {
     String base = "http://" + peers[p].ip + ":" + String(peers[p].port);
     HTTPClient http;
+    http.setTimeout(3000);   // peers are on the local network — 3 s is generous
 
     // Step 1 — clear sessions on peer
     http.begin(client, base + "/api/sessions/clear");
@@ -821,6 +860,7 @@ void handleAdapt() {
 
   WiFiClient client;
   HTTPClient  http;
+  http.setTimeout(3000);   // peers are on the local network — 3 s is generous
   String base = "http://" + targetIp;
 
   // 1. WiFi networks
@@ -1863,25 +1903,16 @@ void loop() {
     }
   }
 
-  // Background peer scan — detects arrivals/departures and notifies browser via SSE.
-  // Runs every 60 s; MDNS.queryService() blocks for ~2 s so we keep it infrequent.
+  // Background peer scan — trigger every 60 s; the task does the blocking work.
   { static uint32_t lastBgScan = 0;
     if (!apMode && WiFi.status() == WL_CONNECTED && millis() - lastBgScan > 60000) {
       lastBgScan = millis();
-      int prevCount = peerCount;
-      peerCount = 0;
-      int n = MDNS.queryService("raceclock", "tcp");
-      lastPeerScan = millis();
-      for (int i = 0; i < n; i++) {
-        IPAddress addr = resolveAddress(i);
-        if (addr == WiFi.localIP()) continue;
-        if (peerCount >= PEER_MAX) break;
-        peers[peerCount].hostname = MDNS.hostname(i) + ".local";
-        peers[peerCount].ip       = addr.toString();
-        peers[peerCount].port     = MDNS.port(i);
-        peerCount++;
-      }
-      if (peerCount != prevCount) ssePush("peers_changed");
+      mdnsScanTrigger();
+    }
+    // Pick up results from the task when it finishes
+    if (mdnsScanDone) {
+      mdnsScanDone = false;
+      if (peersDirty) { peersDirty = false; ssePush("peers_changed"); }
     }
   }
 
