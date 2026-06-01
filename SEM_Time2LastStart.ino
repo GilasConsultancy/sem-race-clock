@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <lwip/sockets.h>   // setsockopt / SO_SNDTIMEO for SSE write timeout
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <ESPmDNS.h>
@@ -972,21 +973,12 @@ void sseBegin() { sseServer.begin(); }
 // Push a named event to the connected browser (fire-and-forget).
 // Guards against blocking writes: only writes if the TCP send buffer has room.
 // If the socket is stalled (browser suspended, laptop lid closed) we drop the
-// client rather than blocking the main loop waiting for the window to open.
+// Push a named event to the connected browser (fire-and-forget).
+// The socket send timeout (set on accept) caps any blocking write at 200 ms.
 void ssePush(const char* type) {
   if (!sseActive) return;
   if (!sseClient.connected()) { sseActive = false; sseClient.stop(); return; }
-  String msg = String("data: {\"type\":\"") + type + "\"}\n\n";
-  // availableForWrite() returns the number of bytes the TCP stack can accept
-  // right now without blocking.  If there isn't room, kill the connection
-  // instead of stalling the loop indefinitely.
-  if (sseClient.availableForWrite() < (int)msg.length()) {
-    Serial.println("[SSE] send buffer full — dropping client");
-    sseActive = false;
-    sseClient.stop();
-    return;
-  }
-  sseClient.print(msg);
+  sseClient.print(String("data: {\"type\":\"") + type + "\"}\n\n");
   sseLastPing = millis();
 }
 
@@ -998,6 +990,16 @@ void sseLoop() {
     sseClient   = incoming;
     sseActive   = true;
     sseLastPing = millis();
+
+    // Set a 200 ms socket-level send timeout so a stalled TCP window
+    // (browser suspended, laptop lid closed) never blocks the main loop.
+    // availableForWrite() is unreliable on ESP32 so we use SO_SNDTIMEO instead.
+    int fd = sseClient.fd();
+    if (fd >= 0) {
+      struct timeval tv = { 0, 200000 };   // 0 s + 200 000 µs = 200 ms
+      setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    }
+
     // Send SSE response headers immediately.  We don't read the HTTP request
     // — EventSource sends a simple GET with no body, so we can respond right
     // away.  The browser validates the response via Content-Type.
@@ -1016,14 +1018,8 @@ void sseLoop() {
     sseClient.stop();
   }
   if (sseActive && millis() - sseLastPing > 15000) {
-    if (sseClient.availableForWrite() >= 12) {
-      sseClient.print(": ping\n\n");          // keepalive comment every 15 s
-      sseLastPing = millis();
-    } else {
-      // Can't write — socket is stalled, drop it
-      sseActive = false;
-      sseClient.stop();
-    }
+    sseClient.print(": ping\n\n");            // keepalive comment every 15 s
+    sseLastPing = millis();
   }
 }
 
