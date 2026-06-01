@@ -1441,8 +1441,7 @@ static void mdnsScanTrigger() {
 // Populates the peers[] cache as a side-effect.
 void negotiateDeviceNumber() {
   Serial.println("[Peers] Scanning…");
-  // 1 s is enough on a local LAN; default is 2 s which adds unnecessary boot delay.
-  int n = MDNS.queryService("raceclock", "tcp", 1000);
+  int n = MDNS.queryService("raceclock", "tcp");
   lastPeerScan = millis();
   bool taken[PEER_MAX + 2] = {};  // index = device number, true = in use
   peerCount = 0;
