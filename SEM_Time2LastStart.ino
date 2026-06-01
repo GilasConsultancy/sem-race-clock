@@ -641,11 +641,24 @@ bool isSEMTrackSession(const String& activity, const String& notes) {
 //
 // Response: { eventName, days: [ { date, day, sessions: [{type,start,lastStart,end}] } ] }
 // Only days that contain at least one track session are included.
+//
+// The result is cached in RAM for the lifetime of the boot — the current event
+// and its schedule don't change during a race day.  Pass ?refresh=1 to force
+// a fresh fetch (e.g. after midnight when a new event day begins).
+static String semScheduleCache;   // empty = not yet fetched this boot
+
 void handleSEMSchedule() {
   if (apMode || WiFi.status() != WL_CONNECTED) {
     server.send(503, "application/json", "{\"error\":\"No internet — cannot reach SEM API\"}");
     return;
   }
+
+  bool refresh = (server.arg("refresh") == "1");
+  if (!semScheduleCache.isEmpty() && !refresh) {
+    server.send(200, "application/json", semScheduleCache);
+    return;
+  }
+
   String eventName;
   JsonDocument schDoc;
   if (!fetchSEMSchedule(eventName, schDoc)) {
@@ -690,8 +703,8 @@ void handleSEMSchedule() {
     for (JsonObject s : tmpSessions) outSess.add(s);
   }
 
-  String result; serializeJson(out, result);
-  server.send(200, "application/json", result);
+  serializeJson(out, semScheduleCache);   // store for subsequent calls this boot
+  server.send(200, "application/json", semScheduleCache);
 }
 
 void handleGetTime() {
