@@ -140,7 +140,7 @@ String       overrideText   = "";    // if non-empty, bypasses the clock state m
 bool         overrideDirty  = false; // set when overrideText changes; loop acts once then clears
 bool         updateRequested      = false; // set by /api/doupdate;    acted on in loop()
 bool         fsUpdateRequested    = false; // set by /api/doupdatefs;  acted on in loop()
-bool         wifiRestartRequested = false; // set by /api/wifi/restart; acted on in loop()
+bool         rebootRequested      = false; // set by /api/wifi/restart; acted on in loop()
 
 #ifdef HAS_RTC
 RTC_DS3231   rtc;
@@ -432,6 +432,7 @@ bool parseTime(const String& s, int& h, int& m) {
   if (s.length() < 5) return false;
   h = s.substring(0, 2).toInt();
   m = s.substring(3, 5).toInt();
+  if (h > 23 || m > 59) return false;
   return true;
 }
 
@@ -577,7 +578,7 @@ void handleFileUpload() {
     String name = upload.filename;
     if (!name.startsWith("/")) name = "/" + name;
     // Whitelist: only known web files can be overwritten
-    if (name != "/index.html" && name != "/style.css") {
+    if (name != "/index.html" && name != "/style.css" && name != "/webonly.html") {
       Serial.println("Upload rejected (unknown file): " + name);
       return;
     }
@@ -668,6 +669,12 @@ void handleSEMSchedule() {
       int lsIdx        = notes.indexOf("Last Start:") + 12;
       String lastStart = notes.substring(lsIdx, lsIdx + 5);
       lastStart.trim();
+      // Guard: skip this session if the extracted time doesn't look like HH:MM.
+      // Protects against SEM API format changes silently producing garbage data.
+      if (lastStart.length() != 5 || lastStart[2] != ':') {
+        Serial.println("[SEM] Skipping session — malformed lastStart: '" + lastStart + "'");
+        continue;
+      }
       JsonObject s  = tmpSessions.add<JsonObject>();
       s["type"]      = type;
       s["start"]     = item["timeStart"];
@@ -688,9 +695,11 @@ void handleSEMSchedule() {
 }
 
 void handleGetTime() {
-  time_t now = UTC.now();   // must be UTC — JS applies the timezone offset itself
-  String out = "{\"epoch\":" + String((long)now) +
-               ",\"synced\":" + (timeStatus() == timeSet ? "true" : "false") + "}";
+  JsonDocument doc;
+  doc["epoch"]  = (long)UTC.now();   // must be UTC — JS applies the timezone offset itself
+  doc["synced"] = (timeStatus() == timeSet);
+  String out;
+  serializeJson(doc, out);
   server.send(200, "application/json", out);
 }
 
@@ -825,8 +834,10 @@ void handleAdapt() {
 
   WiFiClient client;
   HTTPClient  http;
+  // setTimeout persists across begin()/end() cycles on the same HTTPClient instance.
   http.setTimeout(3000);   // peers are on the local network — 3 s is generous
   String base = "http://" + targetIp;
+  int errors = 0;
 
   // 1. WiFi networks
   for (int i = 0; i < wifiNetCount; i++) {
@@ -836,7 +847,12 @@ void handleAdapt() {
     String s; serializeJson(body, s);
     http.begin(client, base + "/api/wifi/add");
     http.addHeader("Content-Type", "application/json");
-    http.POST(s); http.end();
+    int rc = http.POST(s); http.end();
+    if (rc < 200 || rc > 299) {
+      Serial.printf("[adapt] wifi/add failed for SSID %s — rc=%d\n",
+                    wifiNets[i].ssid.c_str(), rc);
+      errors++;
+    }
   }
 
   // 2. Settings (timezone + warn threshold)
@@ -846,32 +862,53 @@ void handleAdapt() {
     String s; serializeJson(body, s);
     http.begin(client, base + "/api/settings");
     http.addHeader("Content-Type", "application/json");
-    http.POST(s); http.end();
+    int rc = http.POST(s); http.end();
+    if (rc < 200 || rc > 299) {
+      Serial.printf("[adapt] settings failed — rc=%d\n", rc);
+      errors++;
+    }
   }
 
-  // 3. Sessions
-  http.begin(client, base + "/api/sessions/clear");
-  http.addHeader("Content-Type", "application/json");
-  http.POST(""); http.end();
-  for (int i = 0; i < sessionCount; i++) {
-    JsonDocument body;
-    body["index"] = -1;
-    JsonObject s  = body["session"].to<JsonObject>();
-    s["type"]     = sessions[i].type;
-    char buf[6];
-    sprintf(buf, "%02d:%02d", sessions[i].startH,     sessions[i].startM);     s["start"]     = buf;
-    sprintf(buf, "%02d:%02d", sessions[i].lastStartH, sessions[i].lastStartM); s["lastStart"] = buf;
-    sprintf(buf, "%02d:%02d", sessions[i].endH,       sessions[i].endM);       s["end"]       = buf;
-    String bodyStr; serializeJson(body, bodyStr);
-    http.begin(client, base + "/api/sessions");
+  // 3. Sessions — only push if WiFi credentials were delivered successfully.
+  // Skipping here avoids sending sessions to a device that may never connect.
+  if (errors == 0) {
+    http.begin(client, base + "/api/sessions/clear");
     http.addHeader("Content-Type", "application/json");
-    http.POST(bodyStr); http.end();
+    int rc = http.POST(""); http.end();
+    if (rc < 200 || rc > 299) {
+      Serial.printf("[adapt] sessions/clear failed — rc=%d\n", rc);
+      errors++;
+    }
+    for (int i = 0; i < sessionCount && errors == 0; i++) {
+      JsonDocument body;
+      body["index"] = -1;
+      JsonObject s  = body["session"].to<JsonObject>();
+      s["type"]     = sessions[i].type;
+      char buf[6];
+      sprintf(buf, "%02d:%02d", sessions[i].startH,     sessions[i].startM);     s["start"]     = buf;
+      sprintf(buf, "%02d:%02d", sessions[i].lastStartH, sessions[i].lastStartM); s["lastStart"] = buf;
+      sprintf(buf, "%02d:%02d", sessions[i].endH,       sessions[i].endM);       s["end"]       = buf;
+      String bodyStr; serializeJson(body, bodyStr);
+      http.begin(client, base + "/api/sessions");
+      http.addHeader("Content-Type", "application/json");
+      rc = http.POST(bodyStr); http.end();
+      if (rc < 200 || rc > 299) {
+        Serial.printf("[adapt] session %d push failed — rc=%d\n", i, rc);
+        errors++;
+      }
+    }
+  }
+
+  if (errors > 0) {
+    server.send(500, "application/json",
+      "{\"ok\":false,\"error\":\"" + String(errors) + " step(s) failed — see serial log\"}");
+    return;
   }
 
   // 4. Restart — device will reboot with new credentials and join main WiFi
   http.begin(client, base + "/api/wifi/restart");
   http.addHeader("Content-Type", "application/json");
-  http.POST(""); http.end();
+  http.POST(""); http.end();   // best-effort: device may reboot before responding
 
   // Remove from unpaired list
   for (int i = 0; i < unpairedCount; i++) {
@@ -895,12 +932,6 @@ void handleGetSettings() {
   doc["apMode"]      = apMode;
   doc["hostname"]    = effectiveHostname;
   doc["deviceNum"]   = deviceNum;
-  // Debug: show what time the firmware actually computes as local time
-  char dbgBuf[20];
-  snprintf(dbgBuf, sizeof(dbgBuf), "%02d:%02d:%02d",
-           localTZ.hour(), localTZ.minute(), localTZ.second());
-  doc["fw_local_time"] = dbgBuf;
-  doc["fw_posix"]      = localTZ.getPosix();
   String out;
   serializeJson(doc, out);
   server.send(200, "application/json", out);
@@ -914,9 +945,17 @@ void handlePostSettings() {
     return;
   }
   String newTZ = doc["tz"].as<String>();
+  newTZ.trim();
   int newWarn  = doc["warnMinutes"] | 5;
   if (newWarn < 1)  newWarn = 1;
   if (newWarn > 30) newWarn = 30;
+
+  // Validate timezone: must be non-empty and have IANA form ("Region/City").
+  if (newTZ.isEmpty() || newTZ.indexOf('/') < 0) {
+    server.send(400, "application/json",
+      "{\"ok\":false,\"error\":\"Invalid timezone — expected IANA name e.g. Europe/Warsaw\"}");
+    return;
+  }
 
   bool tzChanged = (newTZ != currentTZName);
 
@@ -971,10 +1010,8 @@ static uint32_t   sseLastPing = 0;
 void sseBegin() { sseServer.begin(); }
 
 // Push a named event to the connected browser (fire-and-forget).
-// Guards against blocking writes: only writes if the TCP send buffer has room.
-// If the socket is stalled (browser suspended, laptop lid closed) we drop the
-// Push a named event to the connected browser (fire-and-forget).
-// The socket send timeout (set on accept) caps any blocking write at 200 ms.
+// The socket-level send timeout (SO_SNDTIMEO = 200 ms, set on accept) ensures
+// a stalled TCP window never blocks the main loop for more than 200 ms.
 void ssePush(const char* type) {
   if (!sseActive) return;
   if (!sseClient.connected()) { sseActive = false; sseClient.stop(); return; }
@@ -1085,7 +1122,9 @@ void handlePostSession() {
 // --- API: POST /api/sessions/delete ---
 void handleDeleteSession() {
   JsonDocument doc;
-  deserializeJson(doc, server.arg("plain"));
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"Bad JSON\"}"); return;
+  }
   int idx = doc["index"] | -1;
   if (idx < 0 || idx >= sessionCount) {
     server.send(400, "application/json", "{\"ok\":false}"); return;
@@ -1386,7 +1425,8 @@ static void mdnsScanTrigger() {
 // Populates the peers[] cache as a side-effect.
 void negotiateDeviceNumber() {
   Serial.println("[Peers] Scanning…");
-  int n = MDNS.queryService("raceclock", "tcp");
+  // 1 s is enough on a local LAN; default is 2 s which adds unnecessary boot delay.
+  int n = MDNS.queryService("raceclock", "tcp", 1000);
   lastPeerScan = millis();
   bool taken[PEER_MAX + 2] = {};  // index = device number, true = in use
   peerCount = 0;
@@ -1566,10 +1606,10 @@ void handleWifiMove() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
-// POST /api/wifi/restart — reconnect using stored network list
-void handleWifiRestart() {
+// POST /api/wifi/restart — reboot the device (restores WiFi from stored network list)
+void handleReboot() {
   server.send(200, "application/json", "{\"ok\":true}");
-  wifiRestartRequested = true;
+  rebootRequested = true;
 }
 
 // ============================================================
@@ -1779,7 +1819,7 @@ void setup() {
   server.on("/api/wifi/add",       HTTP_POST, handleWifiAdd);
   server.on("/api/wifi/remove",    HTTP_POST, handleWifiRemove);
   server.on("/api/wifi/move",      HTTP_POST, handleWifiMove);
-  server.on("/api/wifi/restart",   HTTP_POST, handleWifiRestart);
+  server.on("/api/wifi/restart",   HTTP_POST, handleReboot);
   server.on("/api/peers",          HTTP_GET,  handleGetPeers);
   server.on("/api/peers/push",     HTTP_POST, handlePeersPush);
   server.on("/api/provision",      HTTP_POST, handleProvision);
@@ -1822,7 +1862,7 @@ void loop() {
 
   if (updateRequested)      performFirmwareUpdate();
   if (fsUpdateRequested)    performFilesystemUpdate();
-  if (wifiRestartRequested) { delay(200); ESP.restart(); }
+  if (rebootRequested)      { delay(200); ESP.restart(); }
 
 #ifdef HAS_P10
   p10UpdateScroll();
@@ -1874,7 +1914,10 @@ void loop() {
     // Set on first loop after joining a raceclock AP in setup() (apMode=false, STA connected,
     // but gateway is 192.168.4.1 which means we are on a soft-AP network, not the main LAN)
     IPAddress gw = WiFi.gatewayIP();
-    bool onRaceclockAP = (!apMode && WiFi.status() == WL_CONNECTED && gw[0] == 192 && gw[3] == 1);
+    // 192.168.4.1 is the fixed IP of our own softAP — matches only that subnet,
+    // not the common home-router addresses (192.168.0.1, 192.168.1.1, etc.).
+    bool onRaceclockAP = (!apMode && WiFi.status() == WL_CONNECTED &&
+                          gw[0] == 192 && gw[1] == 168 && gw[2] == 4 && gw[3] == 1);
     if (onRaceclockAP && millis() - lastAnnounce > 30000) {
       lastAnnounce = millis();
       HTTPClient http; WiFiClient wc;
