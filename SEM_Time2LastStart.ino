@@ -95,51 +95,15 @@ static int        peerCount = 0;
 
 // ── Background mDNS scan (FreeRTOS task, core 1) ──────────────────────────────
 // MDNS.queryService() blocks for ~2 s; running it in a task keeps loop() free.
-// Set mdnsScanRequested = true to trigger a scan; read mdnsScanDone + peersDirty
-// back in loop() (both are only acted on from loop(), so no extra locking needed
-// for those flags).  peers[] is protected by peersMux during the brief copy.
-static volatile bool      mdnsScanRequested = false;
+// mdnsScanTrigger() / mdnsScanTaskFn() are defined after resolveAddress() below
+// so all their dependencies are already in scope.
 static volatile bool      mdnsScanRunning   = false;
 static volatile bool      mdnsScanDone      = false;
 static volatile bool      peersDirty        = false;
 static portMUX_TYPE       peersMux          = portMUX_INITIALIZER_UNLOCKED;
-
-// Trigger a scan if one isn't already running.
-static void mdnsScanTrigger() {
-  if (mdnsScanRunning) return;
-  mdnsScanRunning = true;
-  mdnsScanDone    = false;
-  // Stack 4 KB is enough for String ops + MDNS internals; priority 1 (below idle=0? no, idle=0).
-  // Pinned to core 1 (same as loop) so FreeRTOS serialises access to MDNS state.
-  xTaskCreatePinnedToCore(mdnsScanTaskFn, "mdnsScan", 4096, NULL, 1, NULL, 1);
-}
-
-static void mdnsScanTaskFn(void*) {
-  PeerDevice tmp[PEER_MAX];
-  int        tmpCount = 0;
-
-  int n = MDNS.queryService("raceclock", "tcp");
-  for (int i = 0; i < n && tmpCount < PEER_MAX; i++) {
-    IPAddress addr = resolveAddress(i);
-    if (addr == WiFi.localIP()) continue;
-    tmp[tmpCount].hostname = MDNS.hostname(i) + ".local";
-    tmp[tmpCount].ip       = addr.toString();
-    tmp[tmpCount].port     = MDNS.port(i);
-    tmpCount++;
-  }
-  lastPeerScan = millis();
-
-  // Brief critical section — copy results into the shared array
-  taskENTER_CRITICAL(&peersMux);
-  peersDirty = (tmpCount != peerCount);
-  peerCount  = tmpCount;
-  for (int i = 0; i < tmpCount; i++) peers[i] = tmp[i];
-  taskEXIT_CRITICAL(&peersMux);
-
-  mdnsScanRunning   = false;
-  mdnsScanDone      = true;   // loop() picks this up to push SSE if needed
-  vTaskDelete(NULL);          // one-shot task: delete self
-}
+// Forward declarations (bodies follow resolveAddress)
+static void mdnsScanTaskFn(void*);
+static void mdnsScanTrigger();
 
 // --- Unpaired devices (connected to our AP, waiting to be provisioned) ---
 struct UnpairedDevice { String hostname; String ip; uint32_t seenAt; };
@@ -1380,6 +1344,44 @@ static IPAddress resolveAddress(int i) {
     addr = MDNS.queryHost((h + ".local").c_str());
   }
   return addr;
+}
+
+// ── mDNS scan task — defined here so resolveAddress() is already in scope ─────
+static void mdnsScanTaskFn(void*) {
+  PeerDevice tmp[PEER_MAX];
+  int        tmpCount = 0;
+
+  int n = MDNS.queryService("raceclock", "tcp");
+  for (int i = 0; i < n && tmpCount < PEER_MAX; i++) {
+    IPAddress addr = resolveAddress(i);
+    if (addr == WiFi.localIP()) continue;
+    tmp[tmpCount].hostname = MDNS.hostname(i) + ".local";
+    tmp[tmpCount].ip       = addr.toString();
+    tmp[tmpCount].port     = MDNS.port(i);
+    tmpCount++;
+  }
+  lastPeerScan = millis();
+
+  // Brief critical section — copy results into the shared array
+  taskENTER_CRITICAL(&peersMux);
+  peersDirty = (tmpCount != peerCount);
+  peerCount  = tmpCount;
+  for (int i = 0; i < tmpCount; i++) peers[i] = tmp[i];
+  taskEXIT_CRITICAL(&peersMux);
+
+  mdnsScanRunning = false;
+  mdnsScanDone    = true;   // loop() picks this up to push SSE if needed
+  vTaskDelete(NULL);        // one-shot task: delete self
+}
+
+// Trigger a scan if one isn't already running.
+static void mdnsScanTrigger() {
+  if (mdnsScanRunning) return;
+  mdnsScanRunning = true;
+  mdnsScanDone    = false;
+  // 4 KB stack; priority 1; pinned to core 1 (same as loop()) so FreeRTOS
+  // serialises access to MDNS state — no cross-core cache coherence needed.
+  xTaskCreatePinnedToCore(mdnsScanTaskFn, "mdnsScan", 4096, NULL, 1, NULL, 1);
 }
 
 // ── Peer device-number negotiation ──────────────────────────────────────────
