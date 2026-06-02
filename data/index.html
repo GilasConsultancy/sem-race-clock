@@ -111,7 +111,7 @@
         <div id="sessionList">Loading...</div>
 
         <hr class="divider">
-        <button class="secondary" tabindex="1" onclick="showAddForm()">+ Add session manually</button>
+        <button class="secondary" tabindex="1" id="addSessionBtn" onclick="showAddForm()">+ Add session manually</button>
         <button class="secondary" tabindex="2" id="semToggleBtn" onclick="toggleSEMImport()" style="display:none">↓ Import from official schedule</button>
 
         <div id="semPanel" style="display:none; margin-top:12px;">
@@ -346,12 +346,50 @@
             <button tabindex="23" onclick="checkForUpdate()">Check for updates</button>
             <div id="updateStatus" class="status" style="display:none"></div>
             <div id="updateActions" style="display:none;margin-top:6px">
-              <button class="danger" tabindex="24" onclick="installUpdate()">
-                Update firmware
+              <button class="danger" tabindex="24" onclick="installUpdate()">Update firmware</button>
+              <button class="danger" tabindex="25" onclick="installFSUpdate()"
+                      style="margin-top:4px">Update web files</button>
+              <button tabindex="26" onclick="installAllUpdates()"
+                      style="margin-top:4px">Update firmware + web files</button>
+            </div>
+
+            <hr class="divider">
+            <p class="device-subsection">/update credentials</p>
+            <p class="hint" style="margin-bottom:8px">
+              Protects the <a href="/update" target="_blank">/update</a> OTA page.
+              Takes effect after reboot.
+            </p>
+            <div id="otaCredStatus" class="hint" style="margin-bottom:6px"></div>
+            <label>Username</label>
+            <input type="text" id="otaUser" tabindex="27" autocomplete="off">
+            <label>Password</label>
+            <div class="input-icon-wrap">
+              <input type="password" id="otaPass" tabindex="28" autocomplete="new-password">
+              <button type="button" class="btn-eye" tabindex="29"
+                      onclick="toggleOtaPassVisibility()" title="Show / hide password">
+                <svg id="otaEyeOpen" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg id="otaEyeClosed" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     style="display:none">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
               </button>
             </div>
-            <button class="secondary" tabindex="25" onclick="installFSUpdate()"
-                    style="margin-top:8px">Update web files</button>
+            <button tabindex="30" onclick="saveOtaCreds()">Change credentials</button>
+            <div id="otaCredSaveStatus" class="status" style="display:none"></div>
+
+            <hr class="divider">
+            <p class="device-subsection">Diagnostic log</p>
+            <p class="hint" style="margin-bottom:6px">Last 40 events recorded on the device.</p>
+            <button class="secondary" tabindex="31" onclick="loadLog()">View log</button>
+            <pre id="logOutput" style="display:none;margin-top:8px;padding:8px;
+                 background:#111;color:#0f0;font-size:10px;border-radius:4px;
+                 overflow-x:auto;white-space:pre-wrap;max-height:200px;overflow-y:auto"></pre>
           </div>
         </div>
 
@@ -672,7 +710,17 @@ async function loadSessions() {
 }
 
 function renderSessions() {
-  const el = document.getElementById('sessionList');
+  const el  = document.getElementById('sessionList');
+  const max = settings.maxSessions || 20;
+
+  // Disable "Add session" button when at capacity
+  const addBtn = document.getElementById('addSessionBtn');
+  if (addBtn) {
+    const atMax = sessions.length >= max;
+    addBtn.disabled = atMax;
+    addBtn.title    = atMax ? `Maximum ${max} sessions reached` : '';
+  }
+
   if (!sessions.length) {
     el.innerHTML =
       '<p style="color:#aaa;font-size:13px;margin-bottom:12px">No sessions configured.</p>';
@@ -680,7 +728,6 @@ function renderSessions() {
   }
 
   const nowMins = getEventNowMins();
-  const max     = settings.maxSessions || 20;
 
   let html = `<p class="session-count">${sessions.length} / ${max} sessions</p>`;
   html += '<table class="session-table"><thead><tr>' +
@@ -773,6 +820,9 @@ async function saveSession() {
 
   if (!start || !lastStart || !end) {
     showStatus('formStatus', 'All time fields are required.', true); return;
+  }
+  if (timeToMins(end) <= timeToMins(start)) {
+    showStatus('formStatus', 'Sessions cannot cross midnight — end must be later than start on the same day.', true); return;
   }
   if (timeToMins(start) >= timeToMins(lastStart)) {
     showStatus('formStatus', 'Session start must be before last start.', true); return;
@@ -1028,6 +1078,8 @@ function _t2s(hhmm) {
   return h * 3600 + m * 60;
 }
 
+// NOTE: This mirrors computeState() in SEM_Time2LastStart.ino.
+// If you change state logic here, update the firmware counterpart too (and vice versa).
 function computeDisplayState() {
   if (overrideText) {
     return { line1: overrideText, line2: '', blinkMs: 0, scroll: true };
@@ -1560,6 +1612,7 @@ function toggleWifi() {
 let deviceOpen = false;
 function toggleDevice() {
   deviceOpen = makeToggle('deviceBody', 'deviceChevron', 'deviceToggle', deviceOpen);
+  if (deviceOpen) loadOtaCreds();   // populate OTA credentials form on first open
 }
 
 async function loadVersion() {
@@ -1656,6 +1709,118 @@ async function installFSUpdate() {
       setTimeout(() => location.reload(), 1500);
     } catch(e) { /* still rebooting */ }
   }, 3000);
+}
+
+// ── Update all (firmware + web files in sequence) ───────────────────────────
+async function installAllUpdates() {
+  const ok = await confirm(
+    'Update firmware and web files?\n\nThe device will reboot twice — once after each update.',
+    'Update all'
+  );
+  if (!ok) return;
+
+  const statusEl  = document.getElementById('updateStatus');
+  const actionsEl = document.getElementById('updateActions');
+  actionsEl.style.display = 'none';
+
+  // ── Step 1: firmware ─────────────────────────────────
+  statusEl.textContent   = 'Step 1/2 — Downloading firmware… do not close this page.';
+  statusEl.className     = 'status';
+  statusEl.style.display = 'block';
+  try { await fetch('/api/doupdate', { method: 'POST' }); } catch(e) {}
+
+  // Poll until device comes back
+  let attempts = 0;
+  await new Promise(resolve => {
+    const poll = setInterval(async () => {
+      attempts++;
+      if (attempts > 60) { clearInterval(poll); resolve(); return; }
+      try { await fetch('/api/version', { cache: 'no-store' }); clearInterval(poll); resolve(); }
+      catch(e) {}
+    }, 3000);
+  });
+
+  // ── Step 2: web files ────────────────────────────────
+  statusEl.textContent = 'Step 2/2 — Downloading web files…';
+  try { await fetch('/api/doupdatefs', { method: 'POST' }); } catch(e) {}
+
+  attempts = 0;
+  await new Promise(resolve => {
+    const poll = setInterval(async () => {
+      attempts++;
+      if (attempts > 60) { clearInterval(poll); resolve(); return; }
+      try { await fetch('/api/version', { cache: 'no-store' }); clearInterval(poll); resolve(); }
+      catch(e) {}
+    }, 3000);
+  });
+
+  statusEl.textContent = 'Both updates complete — reloading…';
+  setTimeout(() => location.reload(), 1500);
+}
+
+// ── OTA credentials ──────────────────────────────────────────────────────────
+async function loadOtaCreds() {
+  try {
+    const r = await fetch('/api/ota-credentials');
+    const d = await r.json();
+    document.getElementById('otaUser').value = d.user || '';
+    const hint = document.getElementById('otaCredStatus');
+    if (hint) hint.textContent = d.isDefault
+      ? 'Using default credentials — consider changing these.'
+      : `Custom credentials set for user "${d.user}".`;
+  } catch(e) {}
+}
+
+async function saveOtaCreds() {
+  const user = document.getElementById('otaUser').value.trim();
+  const pass = document.getElementById('otaPass').value;
+  if (!user) { showStatus('otaCredSaveStatus', 'Username cannot be empty.', true); return; }
+  const ok = await confirm(
+    'Change /update credentials? The device will reboot to apply the change.',
+    'Change credentials'
+  );
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/ota-credentials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, pass })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showStatus('otaCredSaveStatus', 'Credentials saved — device is rebooting…', false);
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 30) { clearInterval(poll); location.reload(); return; }
+        try { await fetch('/api/version', { cache: 'no-store' }); clearInterval(poll); location.reload(); }
+        catch(e) {}
+      }, 1000);
+    } else {
+      showStatus('otaCredSaveStatus', d.error || 'Failed.', true);
+    }
+  } catch(e) { showStatus('otaCredSaveStatus', 'Error: ' + e.message, true); }
+}
+
+function toggleOtaPassVisibility() {
+  const inp  = document.getElementById('otaPass');
+  const show = inp.type === 'password';
+  inp.type   = show ? 'text' : 'password';
+  document.getElementById('otaEyeOpen').style.display   = show ? 'none' : '';
+  document.getElementById('otaEyeClosed').style.display = show ? ''     : 'none';
+}
+
+// ── Diagnostic log ────────────────────────────────────────────────────────────
+async function loadLog() {
+  const pre = document.getElementById('logOutput');
+  pre.style.display = 'block';
+  pre.textContent   = 'Loading…';
+  try {
+    const r    = await fetch('/api/log');
+    const lines = await r.json();
+    pre.textContent = lines.length ? lines.join('\n') : '(log is empty)';
+    pre.scrollTop   = pre.scrollHeight;
+  } catch(e) { pre.textContent = 'Error: ' + e.message; }
 }
 
 // ── Utilities ──────────────────────────────────────────

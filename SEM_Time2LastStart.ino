@@ -69,6 +69,11 @@ static const char* BASE_HOSTNAME = "raceclock";  // base mDNS name shared by all
 
 #define MAX_SESSIONS 20
 
+// NVS schema version — increment when the NVS key layout changes and add
+// migration logic in setup().  Devices with an older schema are migrated
+// automatically on first boot after an update.
+#define NVS_SCHEMA 1
+
 // --- Session structure ---
 struct Session {
   String type;        // "Prototype" or "Urban Concept"
@@ -147,6 +152,30 @@ RTC_DS3231   rtc;
 bool         rtcAvailable  = false;
 bool         rtcSynced     = false;   // true once NTP has written the RTC
 #endif
+
+// ── ElegantOTA credentials (loaded from NVS; default admin/raceclock) ────────
+static String otaUser = "admin";
+static String otaPass = "raceclock";
+
+// ── In-memory diagnostic log ─────────────────────────────────────────────────
+// 40 lines × 96 chars = 3 840 bytes.  Exposed via GET /api/log so field
+// failures can be diagnosed without a USB cable.
+// NOT thread-safe — call logf() only from the main loop task (core 1).
+#define LOG_LINES 40
+#define LOG_WIDTH 96
+static char logBuf[LOG_LINES][LOG_WIDTH];
+static int  logHead  = 0;
+static int  logCount = 0;
+
+void logf(const char* fmt, ...) {
+  char msg[LOG_WIDTH - 12];   // reserve space for the timestamp prefix
+  va_list a; va_start(a, fmt); vsnprintf(msg, sizeof(msg), fmt, a); va_end(a);
+  Serial.println(msg);
+  uint32_t ms = millis();
+  snprintf(logBuf[logHead], LOG_WIDTH, "%6lu.%03lu %s", ms / 1000, ms % 1000, msg);
+  logHead = (logHead + 1) % LOG_LINES;
+  if (logCount < LOG_LINES) logCount++;
+}
 
 // ============================================================
 //  STATUS LED
@@ -1096,6 +1125,13 @@ void handlePostSession() {
     return;
   }
 
+  // Reject midnight-crossing sessions — same-day time arithmetic doesn't support them
+  if (toMins(s.endH, s.endM) <= toMins(s.startH, s.startM)) {
+    server.send(400, "application/json",
+      "{\"ok\":false,\"error\":\"Sessions cannot cross midnight — end must be later than start on the same day\"}");
+    return;
+  }
+
   // Validate time order
   if (toMins(s.startH, s.startM) >= toMins(s.lastStartH, s.lastStartM) ||
       toMins(s.lastStartH, s.lastStartM) >= toMins(s.endH, s.endM)) {
@@ -1321,18 +1357,31 @@ void performFirmwareUpdate() {
   WiFiClientSecure client;
   client.setInsecure();
   httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  t_httpUpdate_return ret = httpUpdate.update(client, url);
+
+  t_httpUpdate_return ret = HTTP_UPDATE_FAILED;
+  for (int attempt = 1; attempt <= 2; attempt++) {
+    if (attempt > 1) {
+      logf("[OTA] Attempt 1 failed — retrying in 5 s");
+      ssePush("update_retry");
+      delay(5000);
+    }
+    ret = httpUpdate.update(client, url);
+    if (ret != HTTP_UPDATE_FAILED) break;
+    logf("[OTA] Attempt %d failed: %s", attempt,
+         httpUpdate.getLastErrorString().c_str());
+  }
 
   switch (ret) {
     case HTTP_UPDATE_OK:
-      Serial.println("[OTA] Success — rebooting");
+      logf("[OTA] Success — rebooting");
       break;                        // device reboots; update_done implicit
     case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("[OTA] No update available");
+      logf("[OTA] No update available");
       ssePush("update_failed");
       break;
     case HTTP_UPDATE_FAILED:
-      Serial.println("[OTA] Failed: " + httpUpdate.getLastErrorString());
+      logf("[OTA] Failed after 2 attempts: %s",
+           httpUpdate.getLastErrorString().c_str());
       ssePush("update_failed");
       break;
   }
@@ -1364,22 +1413,82 @@ void performFilesystemUpdate() {
   WiFiClientSecure client;
   client.setInsecure();
   httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  t_httpUpdate_return ret = httpUpdate.updateSpiffs(client, url);
+
+  t_httpUpdate_return ret = HTTP_UPDATE_FAILED;
+  for (int attempt = 1; attempt <= 2; attempt++) {
+    if (attempt > 1) {
+      logf("[FSOTA] Attempt 1 failed — retrying in 5 s");
+      ssePush("update_retry");
+      delay(5000);
+    }
+    ret = httpUpdate.updateSpiffs(client, url);
+    if (ret != HTTP_UPDATE_FAILED) break;
+    logf("[FSOTA] Attempt %d failed: %s", attempt,
+         httpUpdate.getLastErrorString().c_str());
+  }
 
   switch (ret) {
     case HTTP_UPDATE_OK:
-      Serial.println("[FSOTA] Success — rebooting");
+      logf("[FSOTA] Success — rebooting");
       break;
     case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("[FSOTA] No update available");
+      logf("[FSOTA] No update available");
       ssePush("update_failed");
       break;
     case HTTP_UPDATE_FAILED:
-      Serial.println("[FSOTA] Failed: " + httpUpdate.getLastErrorString());
+      logf("[FSOTA] Failed after 2 attempts: %s",
+           httpUpdate.getLastErrorString().c_str());
       ssePush("update_failed");
       break;
   }
 }
+// ── Diagnostic log ───────────────────────────────────────────────────────────
+// GET /api/log — returns the in-memory log as a JSON array of strings,
+// oldest entry first.  Call from a browser or curl to diagnose field issues
+// without needing a USB cable attached to the device.
+void handleGetLog() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  int start = (logCount < LOG_LINES) ? 0 : logHead;  // oldest entry
+  for (int i = 0; i < logCount; i++)
+    arr.add(logBuf[(start + i) % LOG_LINES]);
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+// ── ElegantOTA credential management ─────────────────────────────────────────
+// GET /api/ota-credentials — returns current username (never the password)
+void handleGetOtaCreds() {
+  JsonDocument doc;
+  doc["user"]      = otaUser;
+  doc["isDefault"] = (otaUser == "admin" && otaPass == "raceclock");
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
+// POST /api/ota-credentials { user, pass } — persists new credentials and reboots
+// New credentials take effect after the reboot (ElegantOTA is initialised at boot).
+void handleSetOtaCreds() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"Bad JSON\"}"); return;
+  }
+  String newUser = doc["user"] | "";
+  String newPass = doc["pass"] | "";
+  newUser.trim();
+  if (newUser.isEmpty()) {
+    server.send(400, "application/json",
+      "{\"ok\":false,\"error\":\"Username cannot be empty\"}"); return;
+  }
+  prefs.putString("ota_user", newUser);
+  prefs.putString("ota_pass", newPass);
+  logf("[OTA] Credentials updated for user '%s' — rebooting", newUser.c_str());
+  server.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
+  displayMessage("REBOOT...");
+  delay(500);
+  ESP.restart();
+}
+
 // ── Peer helpers ─────────────────────────────────────────────────────────────
 // MDNS.address(i) returns 0.0.0.0 when the A record wasn't included as an
 // additional record in the SRV/PTR response (common with non-ESP mDNS
@@ -1641,6 +1750,20 @@ void setup() {
   }
 
   prefs.begin("semclock", false);
+
+  // NVS schema migration — increment NVS_SCHEMA and add cases here when
+  // the stored key layout changes.
+  int savedSchema = prefs.getInt("schema", 0);
+  if (savedSchema != NVS_SCHEMA) {
+    // No data to migrate yet (first versioned schema).
+    prefs.putInt("schema", NVS_SCHEMA);
+    logf("[NVS] Schema initialised at v%d (was v%d)", NVS_SCHEMA, savedSchema);
+  }
+
+  // Load ElegantOTA credentials; fall back to hardcoded defaults if not set.
+  otaUser = prefs.getString("ota_user", "admin");
+  otaPass = prefs.getString("ota_pass", "raceclock");
+
   currentTZName = prefs.getString("tz", "Europe/Warsaw");
   warnMinutes   = prefs.getInt("warn", 5);
   // device_num is NOT loaded from NVS — always start from 1 and negotiate at
@@ -1844,6 +1967,9 @@ void setup() {
   server.on("/api/checkupdate",    HTTP_GET,  handleCheckUpdate);
   server.on("/api/doupdate",       HTTP_POST, handleDoUpdate);
   server.on("/api/doupdatefs",     HTTP_POST, handleDoUpdateFS);
+  server.on("/api/log",            HTTP_GET,  handleGetLog);
+  server.on("/api/ota-credentials",HTTP_GET,  handleGetOtaCreds);
+  server.on("/api/ota-credentials",HTTP_POST, handleSetOtaCreds);
   server.on("/upload",             HTTP_POST,
     []() { server.send(200, "application/json", "{\"ok\":true}"); },
     handleFileUpload
@@ -1861,7 +1987,7 @@ void setup() {
   });
 
   // --- ElegantOTA (browser-based firmware + filesystem upload at /update) ---
-  ElegantOTA.begin(&server, "admin", "raceclock");
+  ElegantOTA.begin(&server, otaUser.c_str(), otaPass.c_str());
   server.begin();
   sseBegin();   // SSE event stream on port 81
 }
@@ -1893,12 +2019,12 @@ void loop() {
       if (wifiWasConnected) {
         wifiWasConnected = false;
         displayMessage("RECONNECTING");
-        Serial.println("Wi-Fi lost — reconnecting...");
+        logf("[wifi] connection lost — reconnecting");
       }
       WiFi.reconnect();
     } else if (!wifiWasConnected) {
       wifiWasConnected = true;
-      Serial.println("Wi-Fi restored — triggering NTP sync");
+      logf("[wifi] restored (%s)", WiFi.localIP().toString().c_str());
       ssePush("wifi_reconnected");
       updateNTP();
 #ifdef HAS_RTC
@@ -1986,9 +2112,9 @@ void loop() {
     if (millis() - lastHeapCheck > 60000) {
       lastHeapCheck = millis();
       uint32_t free = ESP.getFreeHeap();
-      Serial.printf("[heap] free=%u  min=%u\n", free, ESP.getMinFreeHeap());
+      logf("[heap] free=%u  min=%u", free, ESP.getMinFreeHeap());
       if (free < 15000) {
-        Serial.println("[heap] critically low — rebooting");
+        logf("[heap] critically low (%u) — rebooting", free);
         displayMessage("REBOOT...");
         delay(500);
         ESP.restart();
@@ -2005,7 +2131,7 @@ void loop() {
     if (h == 3 && m == 1)  rebootArmed = true;
     if (h == 3 && m == 0 && rebootArmed) {
       rebootArmed = false;
-      Serial.println("[watchdog] Daily reboot at 03:00");
+      logf("[watchdog] Daily reboot at 03:00");
       displayMessage("REBOOT...");
       delay(500);
       ESP.restart();
