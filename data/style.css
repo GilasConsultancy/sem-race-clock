@@ -302,6 +302,8 @@ button.danger:hover { background: #bb1418; }
 /* ─── Row actions ─────────────────────────────────────── */
 .row-actions { display: flex; gap: 5px; }
 .btn-small {
+  width: auto;      /* override the base button { width: 100% } */
+  margin: 0;        /* let the surrounding layout control spacing */
   padding: 5px 12px;
   font-size: 13px;
   border-radius: 4px;
@@ -555,4 +557,65 @@ button.danger:hover { background: #bb1418; }
   font-size: 12px;
   color: #aaa;
   margin-top: 2px;
+}
+
+/* ─── Input + compact button on one line ──────────────── */
+/* Used for the manual-peer IP field and similar inline entry rows. */
+.input-btn-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.input-btn-row input {
+  flex: 1;
+  min-width: 0;   /* allows flex to shrink below intrinsic width */
+  margin: 0;
+}
+
+/* ─── Manual peer row ─────────────────────────────────── */
+.peer-row.manual              { background: #fff8e1; }
+.peer-row.manual .peer-hostname { color: #e65100; font-style: italic; }
+.peer-row.manual .peer-ip       { color: #b45309; }
+
+/* ─── SEM schedule event header ───────────────────────── */
+.sem-event-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.sem-event-header p {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  color: #555;    /* darker than .hint (#aaa) for legibility */
+}
+
+/* ─── Diagnostic log output ───────────────────────────── */
+.log-pre {
+  display: none;
+  width: 100%;          /* constrain to parent so overflow-x can fire */
+  margin-top: 8px;
+  padding: 8px;
+  background: #111;
+  color: #0f0;
+  font-size: 10px;
+  border-radius: 4px;
+  white-space: pre;     /* no wrapping — horizontal scroll instead */
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 200px;
+  box-sizing: border-box;
+}
+
+/* ─── WiFi first-run setup callout ───────────────────── */
+.first-run-hint {
+  display: none;
+  padding: 8px 10px;
+  background: #e3f2fd;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #1565c0;
 }
