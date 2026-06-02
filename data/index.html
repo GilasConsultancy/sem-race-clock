@@ -115,10 +115,18 @@
         <button class="secondary" tabindex="2" id="semToggleBtn" onclick="toggleSEMImport()" style="display:none">↓ Import from official schedule</button>
 
         <div id="semPanel" style="display:none; margin-top:12px;">
+          <div style="text-align:right;margin-bottom:4px">
+            <button class="secondary btn-small" onclick="toggleSEMImport()" style="padding:2px 8px">✕ Close</button>
+          </div>
           <div id="semLoading" class="hint"        style="display:none">Fetching schedule…</div>
           <div id="semError"   class="status error" style="display:none"></div>
           <div id="semInfo"                         style="display:none">
-            <p  id="semEventName" class="hint" style="margin-bottom:12px;"></p>
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
+              <p id="semEventName" class="hint" style="margin:0;flex:1"></p>
+              <button id="semRefreshBtn" class="btn-small btn-edit"
+                      onclick="loadSEMSchedule(true)"
+                      title="Re-fetch from SEM API" style="display:none;white-space:nowrap">↺ Refresh</button>
+            </div>
             <label>Select day</label>
             <select id="semDaySelect" tabindex="3" onchange="loadSEMSessions()"></select>
             <div id="semPreview" style="display:none">
@@ -126,7 +134,8 @@
                 <thead><tr><th>Type</th><th>Start</th><th>Last start</th><th>End</th></tr></thead>
                 <tbody id="semPreviewBody"></tbody>
               </table>
-              <button tabindex="4" onclick="importSEMSessions()">Import — replaces all current sessions</button>
+              <p class="hint" style="color:#c62828;margin-bottom:6px">Replaces all current sessions.</p>
+              <button tabindex="4" onclick="importSEMSessions()">Import sessions</button>
               <div id="semImportStatus" class="status" style="display:none"></div>
             </div>
           </div>
@@ -150,10 +159,10 @@
           <canvas id="p10Canvas" width="320" height="80"
             style="display:block;width:100%;border-radius:4px"></canvas>
           <hr class="divider">
-          <label>Override text</label>
-          <input type="text" id="overrideInput" tabindex="6" placeholder="Override text">
+          <label>Custom message</label>
+          <input type="text" id="overrideInput" tabindex="6" placeholder="Message to show on board">
           <div class="override-actions">
-            <button tabindex="7" onclick="setOverride()">Show on display</button>
+            <button tabindex="7" onclick="setOverride()">Show on board</button>
             <button class="secondary" tabindex="8" onclick="clearOverride()">✕ Clear</button>
           </div>
           <div id="overrideStatus" class="status" style="display:none"></div>
@@ -257,6 +266,13 @@
 
             <hr class="divider">
 
+            <!-- First-run callout: shown only when no networks are saved yet -->
+            <div id="wifiFirstRunHint" style="display:none;padding:8px 10px;background:#e3f2fd;border-radius:4px;margin-bottom:8px">
+              <p style="margin:0;font-size:13px;color:#1565c0">
+                👋 <strong>First-time setup</strong> — add your venue's WiFi network below, then tap <em>Restart to connect</em>.
+              </p>
+            </div>
+
             <!-- Add network form -->
             <p class="device-subsection">ADD NETWORK</p>
             <input type="text" id="wifiSsid" tabindex="15" placeholder="Network name (SSID)"
@@ -317,7 +333,7 @@
             <p class="device-subsection">Web Files</p>
             <label>Replace a file on the device</label>
             <input type="file" id="webFileInput" tabindex="21" accept=".html,.css">
-            <p class="hint">Accepted: index.html, style.css</p>
+            <p class="hint">Accepted: index.html, style.css, webonly.html</p>
             <button tabindex="22" onclick="uploadWebFile()">Upload</button>
             <div id="uploadStatus" class="status" style="display:none"></div>
 
@@ -350,28 +366,28 @@
       <div class="form-row">
         <div class="form-field">
           <label>Type</label>
-          <select id="sessionType" tabindex="20">
+          <select id="sessionType" tabindex="40">
             <option value="Prototype">Prototype</option>
             <option value="Urban Concept">Urban Concept</option>
           </select>
         </div>
         <div class="form-field">
           <label>Start</label>
-          <input type="time" id="sessionStart" tabindex="21">
+          <input type="time" id="sessionStart" tabindex="41">
         </div>
         <div class="form-field">
           <label>Last start</label>
-          <input type="time" id="sessionLastStart" tabindex="22">
+          <input type="time" id="sessionLastStart" tabindex="42">
         </div>
         <div class="form-field">
           <label>End</label>
-          <input type="time" id="sessionEnd" tabindex="23">
+          <input type="time" id="sessionEnd" tabindex="43">
         </div>
       </div>
 
       <div class="form-actions">
-        <button tabindex="24" onclick="saveSession()">Save session</button>
-        <button class="secondary" tabindex="25" onclick="hideAddForm()">Cancel</button>
+        <button tabindex="44" onclick="saveSession()">Save session</button>
+        <button class="secondary" tabindex="45" onclick="hideAddForm()">Cancel</button>
       </div>
       <div id="formStatus" style="display:none" class="status"></div>
     </div>
@@ -531,10 +547,12 @@ function updateClock() {
 }
 
 // ── Confirm dialog ─────────────────────────────────────
-function confirm(message) {
+// confirmLabel should be the action verb, e.g. "Delete session", not generic "Confirm".
+function confirm(message, confirmLabel = 'Confirm') {
   return new Promise(resolve => {
     const overlay = document.getElementById('confirmOverlay');
     document.getElementById('confirmMessage').textContent = message;
+    document.getElementById('confirmOK').textContent = confirmLabel;
     overlay.classList.add('visible');
     document.getElementById('confirmOK').onclick = () => {
       overlay.classList.remove('visible'); resolve(true);
@@ -602,8 +620,24 @@ async function saveSettings() {
     settings = { ...settings, tz, warnMinutes };
     if (result.reboot) {
       showStatus('settingsStatus', 'Timezone changed — device is rebooting…', false);
-      // Reconnect after reboot (allow ~8 s)
-      setTimeout(() => { showStatus('settingsStatus', 'Reloading…', false); location.reload(); }, 8000);
+      // Poll /api/time until the device comes back up, then reload.
+      // Avoids a hardcoded delay that may be too short or too long.
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 30) {   // 30 × 1 s = 30 s safety timeout
+          clearInterval(poll);
+          showStatus('settingsStatus', 'Reloading…', false);
+          location.reload();
+          return;
+        }
+        try {
+          await fetch('/api/time', { cache: 'no-store' });
+          clearInterval(poll);
+          showStatus('settingsStatus', 'Rebooted — reloading…', false);
+          setTimeout(() => location.reload(), 500);
+        } catch(e) { /* still rebooting */ }
+      }, 1000);
     } else {
       showStatus('settingsStatus', 'Settings saved.', false);
       syncDeviceClock();
@@ -754,7 +788,7 @@ async function saveSession() {
                      nowMins <= timeToMins(existing.end);
     if (isActive) {
       const ok = await confirm(
-        `"${existing.type}" session is currently active. Update it anyway?`);
+        `"${existing.type}" session is currently active. Update it anyway?`, 'Update session');
       if (!ok) return;
     }
   }
@@ -765,7 +799,7 @@ async function saveSession() {
     body: JSON.stringify({ index: idx, session: { type, start, lastStart, end } })
   });
   const result = await r.json();
-  if (result.ok) { await loadSessions(); hideAddForm(); await offerPushToPeers(); }
+  if (result.ok) { await loadSessions(); hideAddForm(); }
   else showStatus('formStatus', result.error || 'Failed to save.', true);
 }
 
@@ -776,7 +810,7 @@ async function deleteSession(i) {
   const msg    = active
     ? `"${s.type}" is currently active. Delete it anyway?`
     : `Delete ${s.type} session (${s.start}–${s.end})?`;
-  const ok = await confirm(msg);
+  const ok = await confirm(msg, 'Delete session');
   if (!ok) return;
   const r = await fetch('/api/sessions/delete', {
     method: 'POST',
@@ -784,11 +818,11 @@ async function deleteSession(i) {
     body: JSON.stringify({ index: i })
   });
   const result = await r.json();
-  if (result.ok) { await loadSessions(); await offerPushToPeers(); }
+  if (result.ok) { await loadSessions(); }
 }
 
 async function clearAll() {
-  const ok = await confirm('Clear all sessions? This cannot be undone.');
+  const ok = await confirm('Clear all sessions? This cannot be undone.', 'Clear all');
   if (!ok) return;
   const r      = await fetch('/api/sessions/clear', { method: 'POST' });
   const result = await r.json();
@@ -1011,7 +1045,7 @@ function computeDisplayState() {
   if (nowSecs < firstStart)
     return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0,    scroll: false };
   if (nowSecs >= lastEnd)
-    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 1000, scroll: false };
+    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0, scroll: false };
 
   // Find active session
   let active = null;
@@ -1086,17 +1120,21 @@ function toggleSEMImport() {
 // Single fetch — replaces the old /api/sem/days + /api/sem/sessions pair.
 // The external SEM API returns the full schedule in one call; day selection
 // is now done client-side from the cached response.
-async function loadSEMSchedule() {
-  const loading = document.getElementById('semLoading');
-  const info    = document.getElementById('semInfo');
-  const err     = document.getElementById('semError');
-  const preview = document.getElementById('semPreview');
+// Pass forceRefresh=true to bypass the firmware-side cache (?refresh=1).
+async function loadSEMSchedule(forceRefresh = false) {
+  const loading    = document.getElementById('semLoading');
+  const info       = document.getElementById('semInfo');
+  const err        = document.getElementById('semError');
+  const preview    = document.getElementById('semPreview');
+  const refreshBtn = document.getElementById('semRefreshBtn');
   loading.style.display = 'block';
   info.style.display    = 'none';
   err.style.display     = 'none';
   preview.style.display = 'none';
+  if (refreshBtn) refreshBtn.style.display = 'none';
   try {
-    const r = await fetch('/api/sem/schedule');
+    const url = '/api/sem/schedule' + (forceRefresh ? '?refresh=1' : '');
+    const r = await fetch(url);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     semSchedule = d;
@@ -1114,6 +1152,7 @@ async function loadSEMSchedule() {
     } catch(_) { /* keep first option */ }
     loading.style.display = 'none';
     info.style.display    = 'block';
+    if (refreshBtn) refreshBtn.style.display = '';   // show once data is loaded
     loadSEMSessions();   // render the auto-selected day
   } catch(e) {
     loading.style.display = 'none';
@@ -1178,7 +1217,7 @@ async function loadOverride() {
     const d = await r.json();
     overrideText = d.text || '';
     document.getElementById('overrideInput').value = overrideText;
-    if (overrideText) showStatus('overrideStatus', 'Override active: "' + overrideText + '"', false);
+    if (overrideText) showStatus('overrideStatus', 'Showing: "' + overrideText + '"', false);
     updateDisplay();
   } catch(e) {}
 }
@@ -1216,9 +1255,9 @@ async function uploadWebFile() {
     showStatus('uploadStatus', 'Select a file first.', true); return;
   }
   const file = input.files[0];
-  const allowed = ['index.html', 'style.css'];
+  const allowed = ['index.html', 'style.css', 'webonly.html'];
   if (!allowed.includes(file.name)) {
-    showStatus('uploadStatus', 'Only index.html, style.css or logo.svg allowed.', true); return;
+    showStatus('uploadStatus', 'Only index.html, style.css, or webonly.html allowed.', true); return;
   }
   showStatus('uploadStatus', 'Uploading…', false);
   try {
@@ -1253,7 +1292,14 @@ async function loadWifi() {
       el.className   = 'wifi-status';
       if (badge) { badge.textContent = 'Not connected'; badge.style.color = ''; }
     }
-    renderWifiNetList(d.networks || []);
+    const nets = d.networks || [];
+    renderWifiNetList(nets);
+
+    // Show first-run hint and auto-open the WiFi card when no networks are saved.
+    const hint = document.getElementById('wifiFirstRunHint');
+    const firstRun = d.apMode && nets.length === 0;
+    if (hint) hint.style.display = firstRun ? 'block' : 'none';
+    if (firstRun && !wifiOpen) toggleWifi();
   } catch(e) {}
 }
 
@@ -1331,7 +1377,7 @@ async function addWifi() {
 }
 
 async function wifiRemove(idx) {
-  if (!await confirm('Remove this network?')) return;
+  if (!await confirm('Remove this network?', 'Remove')) return;
   try {
     await fetch('/api/wifi/remove', {
       method: 'POST',
@@ -1365,8 +1411,6 @@ async function wifiRestart() {
 
 // ── Peer race clocks ───────────────────────────────────
 async function loadPeers() {
-  const list = document.getElementById('wifiPeerList');
-  if (list) list.innerHTML = '<div class="wifi-peer-empty">Scanning…</div>';
   try {
     const r     = await fetch('/api/peers');
     const peers = await r.json();
@@ -1389,7 +1433,8 @@ function renderPeerList(peers) {
   if (knownPeerCount === 0) {
     if (badge)   badge.style.display   = 'none';
     if (btnPush) btnPush.style.display = 'none';
-    list.innerHTML = '<div class="wifi-peer-empty">No other clocks found on network</div>';
+    list.innerHTML = '<div class="wifi-peer-empty">No other clocks found on this network' +
+      '<br><span style="font-size:11px;color:#888">Scans automatically every 60 seconds</span></div>';
     return;
   }
 
@@ -1428,7 +1473,7 @@ async function _executePush() {
 
 // Triggered by the "Push sessions" header button — asks first, then pushes.
 async function pushToAllPeers() {
-  if (!await confirm('Push your sessions to all peers? This will replace their sessions.')) return;
+  if (!await confirm('Push your sessions to all peers? This will replace their sessions.', 'Push sessions')) return;
   await _executePush();
 }
 
@@ -1462,7 +1507,8 @@ function renderUnpairedList(devices) {
 
 async function adaptDevice(ip, btn) {
   if (!await confirm(
-    `Adapt ${ip}?\n\nThis will push your WiFi credentials, timezone, warning threshold, and current sessions to the device, then restart it.`
+    `Adapt ${ip}?\n\nThis will push your WiFi credentials, timezone, warning threshold, and current sessions to the device, then restart it.`,
+    'Adapt device'
   )) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Adapting…'; }
   try {
@@ -1484,7 +1530,7 @@ async function adaptDevice(ip, btn) {
 async function offerPushToPeers() {
   if (!knownPeerCount) return;
   const noun = knownPeerCount === 1 ? '1 peer' : `${knownPeerCount} peers`;
-  if (!await confirm(`Push updated sessions to ${noun}?`)) return;
+  if (!await confirm(`Push updated sessions to ${noun}?`, 'Push sessions')) return;
   await _executePush();
 }
 
@@ -1548,7 +1594,7 @@ async function checkForUpdate() {
 }
 
 async function installUpdate() {
-  const ok = await confirm('Install firmware update? The device will reboot.');
+  const ok = await confirm('Install firmware update? The device will reboot.', 'Install update');
   if (!ok) return;
   const statusEl  = document.getElementById('updateStatus');
   const actionsEl = document.getElementById('updateActions');
@@ -1583,7 +1629,7 @@ async function installUpdate() {
 }
 
 async function installFSUpdate() {
-  const ok = await confirm('Update web files? The device will reboot.');
+  const ok = await confirm('Update web files? The device will reboot.', 'Update web files');
   if (!ok) return;
   const statusEl = document.getElementById('updateStatus');
   statusEl.textContent   = 'Downloading & installing web files… do not close this page.';
