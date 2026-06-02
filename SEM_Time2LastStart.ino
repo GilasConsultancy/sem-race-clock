@@ -99,6 +99,12 @@ static const int PEER_MAX = 9;
 static PeerDevice peers[PEER_MAX];
 static int        peerCount = 0;
 
+// Manual (operator-added) peers — persisted in NVS, visually distinct from mDNS ones.
+struct ManualPeer { String ip; uint16_t port; };
+static const int MANUAL_PEER_MAX = 5;
+static ManualPeer manualPeers[MANUAL_PEER_MAX];
+static int        manualPeerCount = 0;
+
 // ── Background mDNS scan (FreeRTOS task, core 1) ──────────────────────────────
 // MDNS.queryService() blocks for ~2 s; running it in a task keeps loop() free.
 // mdnsScanTrigger() / mdnsScanTaskFn() are defined after resolveAddress() below
@@ -763,6 +769,14 @@ void handleGetPeers() {
     o["hostname"] = peers[i].hostname;
     o["ip"]       = peers[i].ip;
     o["port"]     = peers[i].port;
+    o["manual"]   = false;
+  }
+  for (int i = 0; i < manualPeerCount; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["hostname"] = "";
+    o["ip"]       = manualPeers[i].ip;
+    o["port"]     = manualPeers[i].port;
+    o["manual"]   = true;
   }
   String out; serializeJson(doc, out);
   server.send(200, "application/json", out);
@@ -773,7 +787,8 @@ void handleGetPeers() {
 // The browser calls this same-origin endpoint; the firmware does the
 // peer-to-peer HTTP so no cross-origin CORS preflight is needed.
 void handlePeersPush() {
-  if (peerCount == 0) {
+  int totalPeers = peerCount + manualPeerCount;
+  if (totalPeers == 0) {
     server.send(200, "application/json", "{\"pushed\":0,\"skipped\":0}");
     return;
   }
@@ -781,8 +796,10 @@ void handlePeersPush() {
   int pushed = 0, skipped = 0;
   WiFiClient client;
 
-  for (int p = 0; p < peerCount; p++) {
-    String base = "http://" + peers[p].ip + ":" + String(peers[p].port);
+  for (int p = 0; p < totalPeers; p++) {
+    String ip   = (p < peerCount) ? peers[p].ip             : manualPeers[p - peerCount].ip;
+    uint16_t pt = (p < peerCount) ? peers[p].port           : manualPeers[p - peerCount].port;
+    String base = "http://" + ip + ":" + String(pt);
     HTTPClient http;
     http.setTimeout(3000);   // peers are on the local network — 3 s is generous
 
@@ -1048,44 +1065,50 @@ void handleGetSessions() {
 // without interfering with WebServer's request/response cycle on port 80.
 // One client at a time; browser EventSource reconnects automatically.
 
-static WiFiClient sseClient;
-static bool       sseActive   = false;
-static uint32_t   sseLastPing = 0;
+// ── Server-Sent Events — up to SSE_MAX simultaneous browser connections ───────
+// Supports multiple open browsers (e.g. two operators, or management + monitor).
+// When all slots are occupied, the oldest client is evicted to make room.
+static const int  SSE_MAX = 4;
+static WiFiClient sseClients[SSE_MAX];
+static bool       sseActive[SSE_MAX]   = {};
+static uint32_t   sseLastPing[SSE_MAX] = {};
 
 void sseBegin() { sseServer.begin(); }
 
-// Push a named event to the connected browser (fire-and-forget).
-// The socket-level send timeout (SO_SNDTIMEO = 200 ms, set on accept) ensures
-// a stalled TCP window never blocks the main loop for more than 200 ms.
+// Push a named event to every connected browser (fire-and-forget).
+// The 200 ms SO_SNDTIMEO set on accept prevents a stalled client
+// from blocking the main loop for more than 200 ms.
 void ssePush(const char* type) {
-  if (!sseActive) return;
-  if (!sseClient.connected()) { sseActive = false; sseClient.stop(); return; }
-  sseClient.print(String("data: {\"type\":\"") + type + "\"}\n\n");
-  sseLastPing = millis();
+  String msg = String("data: {\"type\":\"") + type + "\"}\n\n";
+  for (int i = 0; i < SSE_MAX; i++) {
+    if (!sseActive[i]) continue;
+    if (!sseClients[i].connected()) { sseActive[i] = false; sseClients[i].stop(); continue; }
+    sseClients[i].print(msg);
+    sseLastPing[i] = millis();
+  }
 }
 
-// Call from loop() — accepts new connections and sends heartbeats.
+// Call from loop() — accepts new connections and maintains all active clients.
 void sseLoop() {
   WiFiClient incoming = sseServer.accept();
   if (incoming) {
-    if (sseActive) sseClient.stop();          // displace old connection
-    sseClient   = incoming;
-    sseActive   = true;
-    sseLastPing = millis();
+    // Find a free slot; if full, evict the oldest (slot 0) rather than
+    // blocking new connections behind a potentially stale client.
+    int slot = -1;
+    for (int i = 0; i < SSE_MAX; i++) if (!sseActive[i]) { slot = i; break; }
+    if (slot < 0) { sseClients[0].stop(); slot = 0; }
 
-    // Set a 200 ms socket-level send timeout so a stalled TCP window
-    // (browser suspended, laptop lid closed) never blocks the main loop.
-    // availableForWrite() is unreliable on ESP32 so we use SO_SNDTIMEO instead.
-    int fd = sseClient.fd();
+    sseClients[slot]  = incoming;
+    sseActive[slot]   = true;
+    sseLastPing[slot] = millis();
+
+    int fd = sseClients[slot].fd();
     if (fd >= 0) {
-      struct timeval tv = { 0, 200000 };   // 0 s + 200 000 µs = 200 ms
+      struct timeval tv = { 0, 200000 };   // 200 ms send timeout
       setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     }
 
-    // Send SSE response headers immediately.  We don't read the HTTP request
-    // — EventSource sends a simple GET with no body, so we can respond right
-    // away.  The browser validates the response via Content-Type.
-    sseClient.print(
+    sseClients[slot].print(
       "HTTP/1.1 200 OK\r\n"
       "Content-Type: text/event-stream\r\n"
       "Cache-Control: no-cache\r\n"
@@ -1093,15 +1116,17 @@ void sseLoop() {
       "Access-Control-Allow-Origin: *\r\n"
       "\r\n"
     );
-    ssePush("connected");
+    sseClients[slot].print("data: {\"type\":\"connected\"}\n\n");
   }
-  if (sseActive && !sseClient.connected()) {  // drop dead connections
-    sseActive = false;
-    sseClient.stop();
-  }
-  if (sseActive && millis() - sseLastPing > 15000) {
-    sseClient.print(": ping\n\n");            // keepalive comment every 15 s
-    sseLastPing = millis();
+
+  // Maintain all active slots: drop dead connections, send keepalives.
+  for (int i = 0; i < SSE_MAX; i++) {
+    if (!sseActive[i]) continue;
+    if (!sseClients[i].connected()) { sseActive[i] = false; sseClients[i].stop(); continue; }
+    if (millis() - sseLastPing[i] > 15000) {
+      sseClients[i].print(": ping\n\n");
+      sseLastPing[i] = millis();
+    }
   }
 }
 
@@ -1634,6 +1659,82 @@ void loadWifiNetworks() {
   }
 }
 
+// ── Manual peer persistence ───────────────────────────────────────────────────
+void saveManualPeers() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < manualPeerCount; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["ip"]   = manualPeers[i].ip;
+    o["port"] = manualPeers[i].port;
+  }
+  String out; serializeJson(doc, out);
+  prefs.putString("manual_peers", out);
+}
+
+void loadManualPeers() {
+  manualPeerCount = 0;
+  String raw = prefs.getString("manual_peers", "[]");
+  JsonDocument doc;
+  if (deserializeJson(doc, raw)) return;
+  for (JsonObject o : doc.as<JsonArray>()) {
+    if (manualPeerCount >= MANUAL_PEER_MAX) break;
+    String ip = o["ip"] | "";
+    if (ip.isEmpty()) continue;
+    manualPeers[manualPeerCount].ip   = ip;
+    manualPeers[manualPeerCount].port = o["port"] | 80;
+    manualPeerCount++;
+  }
+}
+
+// POST /api/peers/manual — add a peer by IP (persists across reboots)
+void handleAddManualPeer() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"Bad JSON\"}"); return;
+  }
+  String ip = doc["ip"] | "";
+  ip.trim();
+  if (ip.isEmpty()) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"ip required\"}"); return;
+  }
+  for (int i = 0; i < manualPeerCount; i++) {
+    if (manualPeers[i].ip == ip) {
+      server.send(200, "application/json", "{\"ok\":true}"); return;   // already present
+    }
+  }
+  if (manualPeerCount >= MANUAL_PEER_MAX) {
+    server.send(400, "application/json",
+      "{\"ok\":false,\"error\":\"Maximum " + String(MANUAL_PEER_MAX) + " manual peers\"}"); return;
+  }
+  manualPeers[manualPeerCount].ip   = ip;
+  manualPeers[manualPeerCount].port = 80;
+  manualPeerCount++;
+  saveManualPeers();
+  ssePush("peers_changed");
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// POST /api/peers/manual/remove — remove a manual peer by IP
+void handleRemoveManualPeer() {
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain"))) {
+    server.send(400, "application/json", "{\"ok\":false}"); return;
+  }
+  String ip = doc["ip"] | "";
+  for (int i = 0; i < manualPeerCount; i++) {
+    if (manualPeers[i].ip == ip) {
+      for (int j = i; j < manualPeerCount - 1; j++) manualPeers[j] = manualPeers[j + 1];
+      manualPeerCount--;
+      saveManualPeers();
+      ssePush("peers_changed");
+      server.send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+  }
+  server.send(404, "application/json", "{\"ok\":false,\"error\":\"Not found\"}");
+}
+
 // GET /api/wifi — network list + connection status (passwords never sent)
 void handleGetWifi() {
   JsonDocument doc;
@@ -1819,6 +1920,7 @@ void setup() {
 #endif
 
   loadWifiNetworks();
+  loadManualPeers();
 
   // Helper: start our own AP (fallback when no main WiFi available)
   String ownApSsid = (deviceNum > 1) ? "RaceClock" + String(deviceNum) : "RaceClock";
@@ -1958,8 +2060,10 @@ void setup() {
   server.on("/api/wifi/remove",    HTTP_POST, handleWifiRemove);
   server.on("/api/wifi/move",      HTTP_POST, handleWifiMove);
   server.on("/api/wifi/restart",   HTTP_POST, handleReboot);
-  server.on("/api/peers",          HTTP_GET,  handleGetPeers);
-  server.on("/api/peers/push",     HTTP_POST, handlePeersPush);
+  server.on("/api/peers",               HTTP_GET,  handleGetPeers);
+  server.on("/api/peers/push",          HTTP_POST, handlePeersPush);
+  server.on("/api/peers/manual",        HTTP_POST, handleAddManualPeer);
+  server.on("/api/peers/manual/remove", HTTP_POST, handleRemoveManualPeer);
   server.on("/api/provision",      HTTP_POST, handleProvision);
   server.on("/api/unpaired",       HTTP_GET,  handleGetUnpaired);
   server.on("/api/adapt",          HTTP_POST, handleAdapt);

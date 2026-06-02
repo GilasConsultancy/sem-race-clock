@@ -257,6 +257,13 @@
             <div id="wifiPeers">
               <div id="wifiPeerList" class="wifi-peer-empty">Scanning…</div>
             </div>
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <input type="text" id="manualPeerIp" placeholder="Add by IP (e.g. 192.168.1.42)"
+                     style="flex:1;margin:0" spellcheck="false" autocomplete="off">
+              <button class="btn-small btn-edit" style="white-space:nowrap;margin:0"
+                      onclick="addManualPeer()">+ Add</button>
+            </div>
+            <div id="manualPeerStatus" class="status" style="display:none"></div>
 
             <hr class="divider">
 
@@ -754,7 +761,7 @@ function renderSessions() {
       <td>${badge}</td><td>${s.start}</td><td>${s.lastStart}</td><td>${s.end}</td>
       <td><div class="row-actions">
         <button class="btn-small btn-edit"   onclick="editSession(${i})">Edit</button>
-        <button class="btn-small btn-delete" onclick="deleteSession(${i})">Del</button>
+        <button class="btn-small btn-delete" onclick="deleteSession(${i})">Delete</button>
       </div></td></tr>`;
   });
 
@@ -1080,26 +1087,27 @@ function _t2s(hhmm) {
 
 // NOTE: This mirrors computeState() in SEM_Time2LastStart.ino.
 // If you change state logic here, update the firmware counterpart too (and vice versa).
-function computeDisplayState() {
-  if (overrideText) {
-    return { line1: overrideText, line2: '', blinkMs: 0, scroll: true };
+// The pure core is tested in test/statemachine.test.js — keep that file in sync.
+
+// Pure function: all inputs explicit, no globals read.
+// Tested in test/statemachine.test.js.
+function computeDisplayStateAt(sess, nowSecs, warnMinutes, override) {
+  if (override) {
+    return { line1: override, line2: '', blinkMs: 0, scroll: true };
   }
-  if (!sessions || sessions.length === 0) {
+  if (!sess || sess.length === 0) {
     return { line1: 'NO SESSION', line2: '', blinkMs: 0, scroll: false };
   }
 
-  const now     = new Date(Date.now() + deviceOffset);
-  const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-  const sorted  = [...sessions].sort((a, b) => _t2s(a.start) - _t2s(b.start));
+  const sorted     = [...sess].sort((a, b) => _t2s(a.start) - _t2s(b.start));
   const firstStart = _t2s(sorted[0].start);
   const lastEnd    = _t2s(sorted[sorted.length - 1].end);
 
   if (nowSecs < firstStart)
-    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0,    scroll: false };
+    return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0, scroll: false };
   if (nowSecs >= lastEnd)
     return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0, scroll: false };
 
-  // Find active session
   let active = null;
   for (const s of sorted)
     if (nowSecs >= _t2s(s.start) && nowSecs < _t2s(s.end)) { active = s; break; }
@@ -1108,9 +1116,9 @@ function computeDisplayState() {
     return { line1: 'TRACK CLOSED', line2: '', blinkMs: 0, scroll: false };
 
   const remaining = _t2s(active.lastStart) - nowSecs;
-  const warnSecs  = (settings.warnMinutes || 5) * 60;
+  const warnSecs  = warnMinutes * 60;
 
-  if (remaining < 0)
+  if (remaining <= 0)
     return { line1: active.type, line2: '00:00:00', blinkMs: 1000, scroll: false };
 
   const h = Math.floor(remaining / 3600);
@@ -1122,6 +1130,13 @@ function computeDisplayState() {
     return { line1: active.type, line2: timeStr, blinkMs: 750, scroll: false };
 
   return { line1: active.type, line2: timeStr, blinkMs: 0, scroll: false };
+}
+
+// Thin wrapper that reads global state.
+function computeDisplayState() {
+  const now     = new Date(Date.now() + deviceOffset);
+  const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  return computeDisplayStateAt(sessions, nowSecs, settings.warnMinutes || 5, overrideText);
 }
 
 function updateDisplay() {
@@ -1496,7 +1511,15 @@ function renderPeerList(peers) {
   }
   if (btnPush) btnPush.style.display = '';
 
-  list.innerHTML = peers.map(p => `
+  list.innerHTML = peers.map(p => p.manual ? `
+    <div class="peer-row" style="background:#fff8e1">
+      <div>
+        <div class="peer-hostname" style="color:#e65100;font-style:italic">Manual: ${escHtml(p.ip)}</div>
+        <div class="peer-ip">port ${p.port || 80} — added manually</div>
+      </div>
+      <button class="btn-small btn-delete" title="Remove manual peer"
+              onclick="removeManualPeer('${escHtml(p.ip)}')">✕</button>
+    </div>` : `
     <div class="peer-row">
       <div>
         <div class="peer-hostname">${escHtml(p.hostname)}</div>
@@ -1527,6 +1550,33 @@ async function _executePush() {
 async function pushToAllPeers() {
   if (!await confirm('Push your sessions to all peers? This will replace their sessions.', 'Push sessions')) return;
   await _executePush();
+}
+
+async function addManualPeer() {
+  const ip = document.getElementById('manualPeerIp').value.trim();
+  if (!ip) { showStatus('manualPeerStatus', 'Enter an IP address.', true); return; }
+  try {
+    const r = await fetch('/api/peers/manual', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('manualPeerIp').value = '';
+      showStatus('manualPeerStatus', `${ip} added.`, false);
+      loadPeers();
+    } else { showStatus('manualPeerStatus', d.error || 'Failed.', true); }
+  } catch(e) { showStatus('manualPeerStatus', 'Error: ' + e.message, true); }
+}
+
+async function removeManualPeer(ip) {
+  try {
+    await fetch('/api/peers/manual/remove', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip })
+    });
+    loadPeers();
+  } catch(e) {}
 }
 
 // ── Zero-config provisioning ──────────────────────────────────────────────────
