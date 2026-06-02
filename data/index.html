@@ -115,17 +115,15 @@
         <button class="secondary" tabindex="2" id="semToggleBtn" onclick="toggleSEMImport()" style="display:none">↓ Import from official schedule</button>
 
         <div id="semPanel" style="display:none; margin-top:12px;">
-          <div style="text-align:right;margin-bottom:4px">
-            <button class="secondary btn-small" onclick="toggleSEMImport()" style="padding:2px 8px">✕ Close</button>
-          </div>
           <div id="semLoading" class="hint"        style="display:none">Fetching schedule…</div>
           <div id="semError"   class="status error" style="display:none"></div>
           <div id="semInfo"                         style="display:none">
-            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
-              <p id="semEventName" class="hint" style="margin:0;flex:1"></p>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+              <p id="semEventName" class="hint" style="margin:0;flex:1;color:#555"></p>
               <button id="semRefreshBtn" class="btn-small btn-edit"
                       onclick="loadSEMSchedule(true)"
-                      title="Re-fetch from SEM API" style="display:none;white-space:nowrap">↺ Refresh</button>
+                      title="Re-fetch from SEM API"
+                      style="display:none;flex-shrink:0;padding:2px 6px">↺</button>
             </div>
             <label>Select day</label>
             <select id="semDaySelect" tabindex="3" onchange="loadSEMSessions()"></select>
@@ -259,8 +257,8 @@
             </div>
             <div style="display:flex;gap:6px;margin-top:6px">
               <input type="text" id="manualPeerIp" placeholder="Add by IP (e.g. 192.168.1.42)"
-                     style="flex:1;margin:0" spellcheck="false" autocomplete="off">
-              <button class="btn-small btn-edit" style="white-space:nowrap;margin:0"
+                     style="flex:1;min-width:0;margin:0" spellcheck="false" autocomplete="off">
+              <button class="btn-small btn-edit" style="flex-shrink:0;width:auto;margin:0"
                       onclick="addManualPeer()">+ Add</button>
             </div>
             <div id="manualPeerStatus" class="status" style="display:none"></div>
