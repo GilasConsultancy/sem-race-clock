@@ -3,3 +3,6 @@ credentials.h
 .DS_Store
 build/
 .claude/
+node_modules/
+package-lock.json
+tools/.venv/

@@ -26,7 +26,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 #define HAS_RTC      // DS3231 real-time clock  (needs: RTClib by Adafruit)
 //                   //   SDA → GPIO21,  SCL → GPIO22  (hardware I²C)
 //
-// #define HAS_P10      // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
+#define HAS_P10      // P10 HUB12 LED panels    (uses DMD32, vendored in src/DMD32/)
 //                   //   DATA → GPIO23 (MOSI)  CLK  → GPIO18 (SCK)
 //                   //   LATCH→ GPIO5  (SS)    OE   → GPIO4
 //                   //   A    → GPIO16         B    → GPIO17
