@@ -1689,39 +1689,58 @@ async function checkForUpdate() {
   } catch(e) { showStatus('updateStatus', 'Check failed: ' + e.message, true); }
 }
 
+// ── Shared reboot-wait helper ────────────────────────────────────────────────
+// The OTA endpoints return 200 immediately then start downloading in loop().
+// Polling for /api/version right away risks catching the device BEFORE it has
+// rebooted, resolving instantly and reloading the page too early.
+//
+// Two-phase approach:
+//   Phase 1 — wait for the device to go dark  (up to 20 s)
+//   Phase 2 — wait for the device to come back (up to 90 s)
+//
+// Returns true on success, false on timeout.
+async function waitForReboot(statusEl, waitingMsg) {
+  const tick = ms => new Promise(r => setTimeout(r, ms));
+
+  // Phase 1: expect silence within 20 s
+  statusEl.textContent = waitingMsg;
+  for (let i = 0; i < 20; i++) {
+    await tick(1000);
+    try { await fetch('/api/version', { cache: 'no-store' }); }
+    catch(e) { break; }   // went dark — move to phase 2
+  }
+
+  // Phase 2: wait for the device to answer again (up to 90 s)
+  for (let i = 0; i < 90; i++) {
+    await tick(1000);
+    try {
+      await fetch('/api/version', { cache: 'no-store' });
+      return true;   // device is back
+    } catch(e) {}
+  }
+  return false;   // timed out
+}
+
 async function installUpdate() {
   const ok = await confirm('Install firmware update? The device will reboot.', 'Install update');
   if (!ok) return;
   const statusEl  = document.getElementById('updateStatus');
   const actionsEl = document.getElementById('updateActions');
   actionsEl.style.display = 'none';
-  // Persist "installing" message throughout the reboot wait
   statusEl.textContent   = 'Downloading & installing… do not close this page.';
   statusEl.className     = 'status';
   statusEl.style.display = 'block';
-  try {
-    await fetch('/api/doupdate', { method: 'POST' });
-  } catch(e) { /* device may reboot before the response arrives */ }
-  // Poll /api/version every 3 s until the device comes back up
-  let attempts = 0;
-  const poll = setInterval(async () => {
-    attempts++;
-    if (attempts > 60) {                          // 3 min timeout
-      clearInterval(poll);
-      showStatus('updateStatus', 'Update timed out — check device manually.', true);
-      return;
-    }
-    try {
-      const r = await fetch('/api/version');
-      const d = await r.json();
-      clearInterval(poll);
-      document.getElementById('fwVersion').textContent = d.version || '—';
-      // Persist success message — important enough to leave on screen
-      statusEl.textContent   = `Updated to v${d.version} — device rebooted successfully.`;
-      statusEl.className     = 'status';
-      statusEl.style.display = 'block';
-    } catch(e) { /* still rebooting — try again */ }
-  }, 3000);
+  try { await fetch('/api/doupdate', { method: 'POST' }); } catch(e) {}
+
+  const ok2 = await waitForReboot(statusEl, 'Firmware installing — waiting for reboot…');
+  if (!ok2) { showStatus('updateStatus', 'Update timed out — check device manually.', true); return; }
+
+  const r = await fetch('/api/version').catch(() => null);
+  const v = r ? (await r.json()).version : '—';
+  document.getElementById('fwVersion').textContent = v;
+  statusEl.textContent   = `Updated to v${v} — device rebooted successfully.`;
+  statusEl.className     = 'status';
+  statusEl.style.display = 'block';
 }
 
 async function installFSUpdate() {
@@ -1731,27 +1750,13 @@ async function installFSUpdate() {
   statusEl.textContent   = 'Downloading & installing web files… do not close this page.';
   statusEl.className     = 'status';
   statusEl.style.display = 'block';
-  try {
-    await fetch('/api/doupdatefs', { method: 'POST' });
-  } catch(e) { /* device may reboot before response */ }
-  // Poll until device is back, then reload so we're running the new UI
-  let attempts = 0;
-  const poll = setInterval(async () => {
-    attempts++;
-    if (attempts > 60) {
-      clearInterval(poll);
-      showStatus('updateStatus', 'Update timed out — check device manually.', true);
-      return;
-    }
-    try {
-      await fetch('/api/version');
-      clearInterval(poll);
-      statusEl.textContent   = 'Web files updated — reloading…';
-      statusEl.className     = 'status';
-      statusEl.style.display = 'block';
-      setTimeout(() => location.reload(), 1500);
-    } catch(e) { /* still rebooting */ }
-  }, 3000);
+  try { await fetch('/api/doupdatefs', { method: 'POST' }); } catch(e) {}
+
+  const ok2 = await waitForReboot(statusEl, 'Web files installing — waiting for reboot…');
+  if (!ok2) { showStatus('updateStatus', 'Update timed out — check device manually.', true); return; }
+
+  statusEl.textContent = 'Web files updated — reloading…';
+  setTimeout(() => location.reload(), 500);
 }
 
 // ── Update all (firmware + web files in sequence) ───────────────────────────
@@ -1765,40 +1770,25 @@ async function installAllUpdates() {
   const statusEl  = document.getElementById('updateStatus');
   const actionsEl = document.getElementById('updateActions');
   actionsEl.style.display = 'none';
-
-  // ── Step 1: firmware ─────────────────────────────────
-  statusEl.textContent   = 'Step 1/2 — Downloading firmware… do not close this page.';
   statusEl.className     = 'status';
   statusEl.style.display = 'block';
+
+  // ── Step 1: firmware ─────────────────────────────────
+  statusEl.textContent = 'Step 1/2 — Downloading firmware… do not close this page.';
   try { await fetch('/api/doupdate', { method: 'POST' }); } catch(e) {}
 
-  // Poll until device comes back
-  let attempts = 0;
-  await new Promise(resolve => {
-    const poll = setInterval(async () => {
-      attempts++;
-      if (attempts > 60) { clearInterval(poll); resolve(); return; }
-      try { await fetch('/api/version', { cache: 'no-store' }); clearInterval(poll); resolve(); }
-      catch(e) {}
-    }, 3000);
-  });
+  const ok1 = await waitForReboot(statusEl, 'Step 1/2 — Firmware installing — waiting for reboot…');
+  if (!ok1) { showStatus('updateStatus', 'Update timed out after firmware — check device manually.', true); return; }
 
   // ── Step 2: web files ────────────────────────────────
   statusEl.textContent = 'Step 2/2 — Downloading web files…';
   try { await fetch('/api/doupdatefs', { method: 'POST' }); } catch(e) {}
 
-  attempts = 0;
-  await new Promise(resolve => {
-    const poll = setInterval(async () => {
-      attempts++;
-      if (attempts > 60) { clearInterval(poll); resolve(); return; }
-      try { await fetch('/api/version', { cache: 'no-store' }); clearInterval(poll); resolve(); }
-      catch(e) {}
-    }, 3000);
-  });
+  const ok2 = await waitForReboot(statusEl, 'Step 2/2 — Web files installing — waiting for reboot…');
+  if (!ok2) { showStatus('updateStatus', 'Update timed out after web files — check device manually.', true); return; }
 
   statusEl.textContent = 'Both updates complete — reloading…';
-  setTimeout(() => location.reload(), 1500);
+  setTimeout(() => location.reload(), 500);
 }
 
 // ── OTA credentials ──────────────────────────────────────────────────────────
