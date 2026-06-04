@@ -232,10 +232,15 @@ void updateLed() {
 // Hardware SPI: DATA=GPIO23(MOSI), CLK=GPIO18(SCK), LATCH=GPIO5(SS)
 DMD dmd(P10_PANELS_WIDE, P10_PANELS_TALL);
 
-// Hardware timer drives the display scan at ~300 µs intervals (≈333 Hz ÷ 4 rows
-// = ≈83 Hz refresh), well above the flicker threshold.
-static hw_timer_t* p10Timer = NULL;
-void IRAM_ATTR p10ScanISR() { dmd.scanDisplayBySPI(); }
+// FreeRTOS task drives the display scan on core 0 (leaves loop() on core 1 free).
+// A hardware timer ISR cannot be used because the Arduino SPI library takes a
+// FreeRTOS mutex internally — calling it from ISR context causes an immediate panic.
+static void p10ScanTask(void*) {
+  for (;;) {
+    dmd.scanDisplayBySPI();
+    vTaskDelay(pdMS_TO_TICKS(1));   // ~1 ms → 4 rows × 250 Hz = 62.5 Hz refresh
+  }
+}
 
 // DMD32 omits stringWidth — implement it from the font header.
 // Font layout: size(2) fixedWidth(1) height(1) firstChar(1) charCount(1)
@@ -1911,12 +1916,8 @@ void setup() {
   // P10 display — initialise before first displayScroll call
 #ifdef HAS_P10
   dmd.clearScreen(true);
-  // Hardware timer drives the scan ISR at ~300 µs intervals.
-  // ESP32 Arduino core 3.x API: timerBegin(hz), timerAlarm(t, ticks, reload, count).
-  // 1 MHz timer, alarm at 300 ticks → fires every 300 µs.
-  p10Timer = timerBegin(1000000);
-  timerAttachInterrupt(p10Timer, &p10ScanISR);
-  timerAlarm(p10Timer, 300, true, 0);
+  // Scan task pinned to core 0; stack 2 KB is sufficient for SPI + arithmetic.
+  xTaskCreatePinnedToCore(p10ScanTask, "p10Scan", 2048, NULL, 1, NULL, 0);
 #endif
 
   loadWifiNetworks();
