@@ -427,14 +427,16 @@ void DMD::drawTestPattern(byte bPattern)
 --------------------------------------------------------------------------------------*/
 void DMD::scanDisplayBySPI()
 {
-    //if PIN_OTHER_SPI_nCS is in use during a DMD scan request then scanDisplayBySPI() will exit without conflict! (and skip that scan)
-   if( digitalRead( PIN_OTHER_SPI_nCS ) == HIGH )
-   {
+    // No PIN_OTHER_SPI_nCS guard — we have no other SPI device sharing the bus,
+    // and the original guard used SS (GPIO5) which is the same pin as PIN_DMD_SCLK
+    // (the latch), causing the condition to be permanently false and all scans
+    // to be silently skipped.
+    {
         //SPI transfer pixels to the display hardware shift registers
         int rowsize=DisplaysTotal<<2;
         int offset=rowsize * bDMDByte;
         for (int i=0;i<rowsize;i++) {
-        
+
 		vspi->beginTransaction(SPISettings(spiClk, MSBFIRST, SPI_MODE0));
 		vspi->transfer(bDMDScreenRAM[offset+i+row3]);
 		vspi->transfer(bDMDScreenRAM[offset+i+row2]);
@@ -443,7 +445,7 @@ void DMD::scanDisplayBySPI()
 		vspi->endTransaction();
 
        }
-        
+
 
         OE_DMD_ROWS_OFF();
         LATCH_DMD_SHIFT_REG_TO_OUTPUT();
