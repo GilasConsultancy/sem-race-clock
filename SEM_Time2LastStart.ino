@@ -1915,9 +1915,10 @@ void setup() {
 
   // P10 display — initialise before first displayScroll call
 #ifdef HAS_P10
-  dmd.clearScreen(true);
-  // Scan task pinned to core 0; stack 2 KB is sufficient for SPI + arithmetic.
-  xTaskCreatePinnedToCore(p10ScanTask, "p10Scan", 2048, NULL, 1, NULL, 0);
+  dmd.clearScreen(false);   // DIAG: all LEDs on — revert to clearScreen(true) once display confirmed
+  // Scan task pinned to core 0; stack 4 KB to comfortably fit SPI + arithmetic.
+  xTaskCreatePinnedToCore(p10ScanTask, "p10Scan", 4096, NULL, 1, NULL, 0);
+  delay(500);   // give scan task time to push data before WiFi init takes over
 #endif
 
   loadWifiNetworks();
