@@ -60,7 +60,7 @@ extern "C" { esp_err_t mdns_hostname_set(const char* hostname); }
 // ─────────────────────────────────────────────────────────────
 
 // --- Version ---
-#define FIRMWARE_VERSION "0.6.3"
+#define FIRMWARE_VERSION "0.6.4"
 #define GITHUB_OWNER     "gilasconsultancy"
 #define GITHUB_REPO      "sem-race-clock"
 
