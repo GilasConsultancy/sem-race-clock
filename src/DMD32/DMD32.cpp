@@ -58,7 +58,7 @@ DMD::DMD(byte panelsWide, byte panelsHigh)
     digitalWrite(PIN_DMD_CLK, LOW);	// 
     digitalWrite(PIN_DMD_SCLK, LOW);	// 
     digitalWrite(PIN_DMD_R_DATA, HIGH);	// 
-    digitalWrite(PIN_DMD_nOE, LOW);	//
+    digitalWrite(PIN_DMD_nOE, HIGH);	// start disabled (OE active low: HIGH = off)
 
     pinMode(PIN_DMD_A, OUTPUT);	//
     pinMode(PIN_DMD_B, OUTPUT);	//

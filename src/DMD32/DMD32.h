@@ -62,8 +62,10 @@ LED Panel Layout in RAM
 #define LIGHT_DMD_ROW_03_07_11_15()       	{ digitalWrite( PIN_DMD_B, HIGH ); digitalWrite( PIN_DMD_A,  LOW ); }
 #define LIGHT_DMD_ROW_04_08_12_16()       	{ digitalWrite( PIN_DMD_B, HIGH ); digitalWrite( PIN_DMD_A, HIGH ); }
 #define LATCH_DMD_SHIFT_REG_TO_OUTPUT()	{ digitalWrite( PIN_DMD_SCLK, HIGH ); digitalWrite( PIN_DMD_SCLK,  LOW ); }
-#define OE_DMD_ROWS_OFF()                 		{ digitalWrite( PIN_DMD_nOE, LOW  ); }
-#define OE_DMD_ROWS_ON()                  		{ digitalWrite( PIN_DMD_nOE, HIGH ); }
+// HUB12 OE is active LOW: LOW = outputs enabled, HIGH = outputs disabled.
+// ROWS_OFF (blank before latch) must set OE HIGH; ROWS_ON (show after latch) must set LOW.
+#define OE_DMD_ROWS_OFF()                 		{ digitalWrite( PIN_DMD_nOE, HIGH ); }
+#define OE_DMD_ROWS_ON()                  		{ digitalWrite( PIN_DMD_nOE, LOW  ); }
 
 //Pixel/graphics writing modes (bGraphicsMode)
 #define GRAPHICS_NORMAL	0
